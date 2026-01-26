@@ -1,25 +1,24 @@
 import React from "react";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
-
-import ProfileScreen from "@/screens/ProfileScreen";
+import AIChatScreen from "@/screens/AIChatScreen";
 import { useScreenOptions } from "@/hooks/useScreenOptions";
 
-export type ProfileStackParamList = {
-  Profile: undefined;
+export type AIStackParamList = {
+  AIChat: undefined;
 };
 
-const Stack = createNativeStackNavigator<ProfileStackParamList>();
+const Stack = createNativeStackNavigator<AIStackParamList>();
 
-export default function ProfileStackNavigator() {
+export default function AIStackNavigator() {
   const screenOptions = useScreenOptions();
 
   return (
     <Stack.Navigator screenOptions={screenOptions}>
       <Stack.Screen
-        name="Profile"
-        component={ProfileScreen}
+        name="AIChat"
+        component={AIChatScreen}
         options={{
-          title: "Profile",
+          headerTitle: "VAI Assistant",
         }}
       />
     </Stack.Navigator>

@@ -1,0 +1,278 @@
+import React, { useCallback, useState } from "react";
+import { View, StyleSheet, SectionList, RefreshControl } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { useHeaderHeight } from "@react-navigation/elements";
+import { useBottomTabBarHeight } from "@react-navigation/bottom-tabs";
+import { useNavigation } from "@react-navigation/native";
+import { NativeStackNavigationProp } from "@react-navigation/native-stack";
+import { useFocusEffect } from "@react-navigation/native";
+
+import { ThemedText } from "@/components/ThemedText";
+import { ListItem } from "@/components/ListItem";
+import { StatusBadge } from "@/components/StatusBadge";
+import { EmptyState } from "@/components/EmptyState";
+import { useTheme } from "@/hooks/useTheme";
+import { Spacing, BorderRadius } from "@/constants/theme";
+import {
+  storage,
+  ServicePlan,
+  Job,
+  Invoice,
+  Certificate,
+} from "@/lib/storage";
+import { RootStackParamList } from "@/navigation/RootStackNavigator";
+
+type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
+
+interface SectionData {
+  title: string;
+  data: any[];
+  type: "plans" | "jobs" | "invoices" | "certificates";
+}
+
+export default function ServicesScreen() {
+  const insets = useSafeAreaInsets();
+  const headerHeight = useHeaderHeight();
+  const tabBarHeight = useBottomTabBarHeight();
+  const { theme } = useTheme();
+  const navigation = useNavigation<NavigationProp>();
+
+  const [refreshing, setRefreshing] = useState(false);
+  const [sections, setSections] = useState<SectionData[]>([]);
+
+  const loadData = useCallback(async () => {
+    const [plans, jobs, invoices, certificates] = await Promise.all([
+      storage.getServicePlans(),
+      storage.getJobs(),
+      storage.getInvoices(),
+      storage.getCertificates(),
+    ]);
+
+    const newSections: SectionData[] = [
+      { title: "Service Plans", data: plans, type: "plans" },
+      { title: "Job History", data: jobs, type: "jobs" },
+      { title: "Invoices", data: invoices, type: "invoices" },
+      { title: "Certificates", data: certificates, type: "certificates" },
+    ];
+
+    setSections(newSections);
+  }, []);
+
+  useFocusEffect(
+    useCallback(() => {
+      loadData();
+    }, [loadData]),
+  );
+
+  const onRefresh = async () => {
+    setRefreshing(true);
+    await loadData();
+    setRefreshing(false);
+  };
+
+  const formatDate = (dateStr: string) => {
+    const date = new Date(dateStr);
+    return date.toLocaleDateString("en-GB", {
+      day: "numeric",
+      month: "short",
+      year: "numeric",
+    });
+  };
+
+  const formatCurrency = (amount: number) => {
+    return `£${amount.toFixed(2)}`;
+  };
+
+  const renderItem = ({ item, section }: { item: any; section: SectionData }) => {
+    switch (section.type) {
+      case "plans":
+        const plan = item as ServicePlan;
+        return (
+          <ListItem
+            title={plan.name}
+            subtitle={`Valid until ${formatDate(plan.endDate)}`}
+            leftIcon="shield"
+            badge={plan.status === "active" ? "Active" : undefined}
+            badgeColor={theme.success}
+            onPress={() =>
+              navigation.navigate("ServicePlanDetail", { planId: plan.id })
+            }
+            testID={`plan-${plan.id}`}
+          />
+        );
+      case "jobs":
+        const job = item as Job;
+        return (
+          <ListItem
+            title={job.description}
+            subtitle={formatDate(job.scheduledDate)}
+            leftIcon="tool"
+            badge={
+              job.status === "scheduled"
+                ? "Scheduled"
+                : job.status === "completed"
+                  ? "Done"
+                  : undefined
+            }
+            badgeColor={job.status === "completed" ? theme.success : theme.primary}
+            onPress={() => navigation.navigate("JobDetail", { jobId: job.id })}
+            testID={`job-${job.id}`}
+          />
+        );
+      case "invoices":
+        const invoice = item as Invoice;
+        return (
+          <ListItem
+            title={invoice.invoiceNumber}
+            subtitle={`${formatCurrency(invoice.amount)} - Due ${formatDate(invoice.dueDate)}`}
+            leftIcon="file-text"
+            badge={
+              invoice.status === "paid"
+                ? "Paid"
+                : invoice.status === "overdue"
+                  ? "Overdue"
+                  : "Pending"
+            }
+            badgeColor={
+              invoice.status === "paid"
+                ? theme.success
+                : invoice.status === "overdue"
+                  ? theme.error
+                  : theme.warning
+            }
+            onPress={() =>
+              navigation.navigate("InvoiceDetail", { invoiceId: invoice.id })
+            }
+            testID={`invoice-${invoice.id}`}
+          />
+        );
+      case "certificates":
+        const cert = item as Certificate;
+        return (
+          <ListItem
+            title={cert.type}
+            subtitle={`Expires ${formatDate(cert.expiryDate)}`}
+            leftIcon="award"
+            onPress={() =>
+              navigation.navigate("CertificateDetail", { certificateId: cert.id })
+            }
+            testID={`certificate-${cert.id}`}
+          />
+        );
+      default:
+        return null;
+    }
+  };
+
+  const renderSectionHeader = ({
+    section,
+  }: {
+    section: SectionData;
+  }) => (
+    <View
+      style={[styles.sectionHeader, { backgroundColor: theme.backgroundRoot }]}
+    >
+      <ThemedText type="h4">{section.title}</ThemedText>
+    </View>
+  );
+
+  const renderSectionFooter = ({
+    section,
+  }: {
+    section: SectionData;
+  }) => {
+    if (section.data.length > 0) return null;
+
+    let image;
+    let message = "";
+
+    switch (section.type) {
+      case "plans":
+        image = require("../../assets/images/empty-services.png");
+        message = "No service plans yet";
+        break;
+      case "jobs":
+        image = require("../../assets/images/empty-jobs.png");
+        message = "No job history yet";
+        break;
+      case "invoices":
+        image = require("../../assets/images/empty-invoices.png");
+        message = "No invoices yet";
+        break;
+      case "certificates":
+        image = require("../../assets/images/empty-invoices.png");
+        message = "No certificates yet";
+        break;
+    }
+
+    return (
+      <View style={styles.emptySection}>
+        <ThemedText
+          type="small"
+          style={[styles.emptySectionText, { color: theme.textSecondary }]}
+        >
+          {message}
+        </ThemedText>
+      </View>
+    );
+  };
+
+  const allEmpty = sections.every((s) => s.data.length === 0);
+
+  if (allEmpty && sections.length > 0) {
+    return (
+      <View
+        style={[
+          styles.container,
+          { backgroundColor: theme.backgroundRoot, paddingTop: headerHeight },
+        ]}
+      >
+        <EmptyState
+          image={require("../../assets/images/empty-services.png")}
+          title="No Services Yet"
+          description="Your service plans, jobs, invoices, and certificates will appear here"
+          actionLabel="Book a Service"
+          onAction={() => navigation.navigate("BookService")}
+        />
+      </View>
+    );
+  }
+
+  return (
+    <SectionList
+      style={[styles.container, { backgroundColor: theme.backgroundRoot }]}
+      contentContainerStyle={{
+        paddingTop: headerHeight + Spacing.xl,
+        paddingBottom: tabBarHeight + Spacing.xl,
+        paddingHorizontal: Spacing.lg,
+      }}
+      scrollIndicatorInsets={{ bottom: insets.bottom }}
+      sections={sections}
+      keyExtractor={(item, index) => item.id || index.toString()}
+      renderItem={renderItem}
+      renderSectionHeader={renderSectionHeader}
+      renderSectionFooter={renderSectionFooter}
+      stickySectionHeadersEnabled={false}
+      refreshControl={
+        <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
+      }
+    />
+  );
+}
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+  },
+  sectionHeader: {
+    paddingTop: Spacing.lg,
+    paddingBottom: Spacing.md,
+  },
+  emptySection: {
+    padding: Spacing.lg,
+    alignItems: "center",
+  },
+  emptySectionText: {
+    fontStyle: "italic",
+  },
+});

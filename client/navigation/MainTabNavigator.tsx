@@ -3,13 +3,18 @@ import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
 import { Feather } from "@expo/vector-icons";
 import { BlurView } from "expo-blur";
 import { Platform, StyleSheet } from "react-native";
+
 import HomeStackNavigator from "@/navigation/HomeStackNavigator";
-import ProfileStackNavigator from "@/navigation/ProfileStackNavigator";
+import ServicesStackNavigator from "@/navigation/ServicesStackNavigator";
+import AIStackNavigator from "@/navigation/AIStackNavigator";
+import AccountStackNavigator from "@/navigation/AccountStackNavigator";
 import { useTheme } from "@/hooks/useTheme";
 
 export type MainTabParamList = {
   HomeTab: undefined;
-  ProfileTab: undefined;
+  ServicesTab: undefined;
+  AITab: undefined;
+  AccountTab: undefined;
 };
 
 const Tab = createBottomTabNavigator<MainTabParamList>();
@@ -28,6 +33,7 @@ export default function MainTabNavigator() {
           backgroundColor: Platform.select({
             ios: "transparent",
             android: theme.backgroundRoot,
+            web: theme.backgroundRoot,
           }),
           borderTopWidth: 0,
           elevation: 0,
@@ -54,10 +60,30 @@ export default function MainTabNavigator() {
         }}
       />
       <Tab.Screen
-        name="ProfileTab"
-        component={ProfileStackNavigator}
+        name="ServicesTab"
+        component={ServicesStackNavigator}
         options={{
-          title: "Profile",
+          title: "Services",
+          tabBarIcon: ({ color, size }) => (
+            <Feather name="briefcase" size={size} color={color} />
+          ),
+        }}
+      />
+      <Tab.Screen
+        name="AITab"
+        component={AIStackNavigator}
+        options={{
+          title: "VAI",
+          tabBarIcon: ({ color, size }) => (
+            <Feather name="message-circle" size={size} color={color} />
+          ),
+        }}
+      />
+      <Tab.Screen
+        name="AccountTab"
+        component={AccountStackNavigator}
+        options={{
+          title: "Account",
           tabBarIcon: ({ color, size }) => (
             <Feather name="user" size={size} color={color} />
           ),
