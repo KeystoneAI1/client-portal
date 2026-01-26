@@ -21,7 +21,7 @@ export type RootStackParamList = {
   Login: undefined;
   Main: NavigatorScreenParams<MainTabParamList>;
   Settings: undefined;
-  BookService: undefined;
+  BookService: { preselectedJobDescriptionId?: number; serviceName?: string } | undefined;
   EditContact: { contactId?: string };
   EditAppliance: { applianceId?: string };
   ServicePlanDetail: { planId: string };

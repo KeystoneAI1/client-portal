@@ -9,7 +9,7 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useHeaderHeight } from "@react-navigation/elements";
-import { useNavigation } from "@react-navigation/native";
+import { useNavigation, useRoute, RouteProp } from "@react-navigation/native";
 import { Feather } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 
@@ -22,6 +22,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { useProperty } from "@/lib/propertyContext";
 import { Spacing, BorderRadius, Shadows } from "@/constants/theme";
 import { getApiUrl } from "@/lib/query-client";
+import { RootStackParamList } from "@/navigation/RootStackNavigator";
 
 interface JobDescription {
   id: number;
@@ -32,23 +33,78 @@ interface JobDescription {
   appearinwebbooking: boolean;
 }
 
+interface SuggestedAppointment {
+  date: string;
+  starttime: string;
+  endtime: string;
+  engineerid: number;
+  engineername?: string;
+}
+
+type BookServiceRouteProp = RouteProp<RootStackParamList, "BookService">;
+
 export default function BookServiceScreen() {
   const insets = useSafeAreaInsets();
   const headerHeight = useHeaderHeight();
   const { theme } = useTheme();
   const navigation = useNavigation();
+  const route = useRoute<BookServiceRouteProp>();
   const { user } = useAuth();
   const { selectedProperty } = useProperty();
+
+  const preselectedId = route.params?.preselectedJobDescriptionId;
+  const serviceName = route.params?.serviceName;
 
   const [jobDescriptions, setJobDescriptions] = useState<JobDescription[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [selectedJob, setSelectedJob] = useState<JobDescription | null>(null);
   const [notes, setNotes] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [suggestedAppointments, setSuggestedAppointments] = useState<SuggestedAppointment[]>([]);
+  const [loadingAppointments, setLoadingAppointments] = useState(false);
+  const [selectedAppointment, setSelectedAppointment] = useState<SuggestedAppointment | null>(null);
 
   useEffect(() => {
     loadJobDescriptions();
   }, []);
+
+  useEffect(() => {
+    if (selectedJob && selectedProperty?.postcode) {
+      loadSuggestedAppointments();
+    }
+  }, [selectedJob, selectedProperty?.postcode]);
+
+  const loadSuggestedAppointments = async () => {
+    if (!selectedJob || !selectedProperty?.postcode) return;
+    
+    setLoadingAppointments(true);
+    setSuggestedAppointments([]);
+    setSelectedAppointment(null);
+    
+    try {
+      const response = await fetch(
+        new URL("/api/commusoft/suggested-appointments", getApiUrl()).toString(),
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            postcode: selectedProperty.postcode,
+            jobdescriptionid: selectedJob.id,
+            duration: selectedJob.timetocomplete,
+          }),
+        }
+      );
+      if (response.ok) {
+        const data = await response.json();
+        const appointments = data.suggestedappointments || data.appointments || [];
+        setSuggestedAppointments(appointments.slice(0, 5));
+      }
+    } catch (error) {
+      console.error("Failed to load suggested appointments:", error);
+    } finally {
+      setLoadingAppointments(false);
+    }
+  };
 
   const loadJobDescriptions = async () => {
     try {
@@ -62,6 +118,13 @@ export default function BookServiceScreen() {
           (jd: JobDescription) => jd.appearincustomerlogin || jd.appearinwebbooking
         );
         setJobDescriptions(bookable);
+        
+        if (preselectedId) {
+          const preselected = bookable.find((jd: JobDescription) => jd.id === preselectedId);
+          if (preselected) {
+            setSelectedJob(preselected);
+          }
+        }
       }
     } catch (error) {
       console.error("Failed to load job descriptions:", error);
@@ -144,6 +207,26 @@ export default function BookServiceScreen() {
       return mins > 0 ? `${hours}h ${mins}m` : `${hours}h`;
     }
     return `${minutes}m`;
+  };
+
+  const formatAppointmentDate = (dateStr: string) => {
+    const date = new Date(dateStr);
+    return date.toLocaleDateString("en-GB", {
+      weekday: "short",
+      day: "numeric",
+      month: "short",
+    });
+  };
+
+  const formatAppointmentTime = (startTime: string, endTime: string) => {
+    const formatTime = (t: string) => {
+      const [hours, minutes] = t.split(":");
+      const h = parseInt(hours, 10);
+      const ampm = h >= 12 ? "pm" : "am";
+      const h12 = h % 12 || 12;
+      return `${h12}:${minutes}${ampm}`;
+    };
+    return `${formatTime(startTime)} - ${formatTime(endTime)}`;
   };
 
   const renderJobItem = ({ item }: { item: JobDescription }) => {
@@ -230,12 +313,26 @@ export default function BookServiceScreen() {
         </View>
       ) : null}
 
+      {serviceName && preselectedId ? (
+        <View style={[styles.reminderBanner, { backgroundColor: theme.accent + "20" }]}>
+          <Feather name="bell" size={18} color={theme.accent} />
+          <View style={styles.reminderInfo}>
+            <ThemedText type="small" style={{ color: theme.accent, fontWeight: "600" }}>
+              Service Due
+            </ThemedText>
+            <ThemedText type="body" style={{ fontWeight: "500" }}>
+              {serviceName}
+            </ThemedText>
+          </View>
+        </View>
+      ) : null}
+
       <ThemedText type="small" style={[styles.label, { color: theme.textSecondary }]}>
-        SELECT A SERVICE
+        {preselectedId ? "RECOMMENDED SERVICE" : "SELECT A SERVICE"}
       </ThemedText>
 
       <FlatList
-        data={jobDescriptions}
+        data={preselectedId ? jobDescriptions.filter(j => j.id === preselectedId) : jobDescriptions}
         keyExtractor={(item) => item.id.toString()}
         renderItem={renderJobItem}
         scrollEnabled={false}
@@ -250,8 +347,70 @@ export default function BookServiceScreen() {
         }
       />
 
+      {preselectedId && jobDescriptions.length > 1 ? (
+        <>
+          <ThemedText type="small" style={[styles.label, { color: theme.textSecondary }]}>
+            OTHER SERVICES
+          </ThemedText>
+          <FlatList
+            data={jobDescriptions.filter(j => j.id !== preselectedId)}
+            keyExtractor={(item) => item.id.toString()}
+            renderItem={renderJobItem}
+            scrollEnabled={false}
+            ItemSeparatorComponent={() => <View style={{ height: Spacing.sm }} />}
+          />
+        </>
+      ) : null}
+
       {selectedJob ? (
         <View style={styles.formFields}>
+          {suggestedAppointments.length > 0 || loadingAppointments ? (
+            <>
+              <ThemedText type="small" style={[styles.label, { color: theme.textSecondary }]}>
+                SUGGESTED APPOINTMENTS
+              </ThemedText>
+              {loadingAppointments ? (
+                <View style={styles.appointmentLoading}>
+                  <ActivityIndicator size="small" color={theme.primary} />
+                  <ThemedText type="small" style={{ color: theme.textSecondary, marginLeft: Spacing.sm }}>
+                    Finding available slots...
+                  </ThemedText>
+                </View>
+              ) : (
+                <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.appointmentScroll}>
+                  {suggestedAppointments.map((apt, index) => {
+                    const isSelected = selectedAppointment === apt;
+                    return (
+                      <Pressable
+                        key={`${apt.date}-${apt.starttime}-${index}`}
+                        style={[
+                          styles.appointmentCard,
+                          { backgroundColor: theme.backgroundDefault },
+                          isSelected && { borderColor: theme.primary, borderWidth: 2 },
+                        ]}
+                        onPress={() => {
+                          setSelectedAppointment(apt);
+                          Haptics.selectionAsync();
+                        }}
+                        testID={`appointment-${index}`}
+                      >
+                        <ThemedText type="body" style={[styles.appointmentDate, isSelected && { color: theme.primary }]}>
+                          {formatAppointmentDate(apt.date)}
+                        </ThemedText>
+                        <ThemedText type="small" style={{ color: theme.textSecondary }}>
+                          {formatAppointmentTime(apt.starttime, apt.endtime)}
+                        </ThemedText>
+                        {isSelected ? (
+                          <Feather name="check-circle" size={16} color={theme.primary} style={{ marginTop: Spacing.xs }} />
+                        ) : null}
+                      </Pressable>
+                    );
+                  })}
+                </ScrollView>
+              )}
+            </>
+          ) : null}
+
           <ThemedText type="small" style={[styles.label, { color: theme.textSecondary }]}>
             ADDITIONAL NOTES (OPTIONAL)
           </ThemedText>
@@ -285,6 +444,16 @@ export default function BookServiceScreen() {
                 {formatDuration(selectedJob.timetocomplete)}
               </ThemedText>
             </View>
+            {selectedAppointment ? (
+              <View style={styles.summaryRow}>
+                <ThemedText type="small" style={{ color: theme.textSecondary }}>
+                  Appointment:
+                </ThemedText>
+                <ThemedText type="small">
+                  {formatAppointmentDate(selectedAppointment.date)} {formatAppointmentTime(selectedAppointment.starttime, selectedAppointment.endtime)}
+                </ThemedText>
+              </View>
+            ) : null}
             <View style={styles.summaryRow}>
               <ThemedText type="small" style={{ color: theme.textSecondary }}>
                 Price:
@@ -324,6 +493,38 @@ const styles = StyleSheet.create({
     padding: Spacing.md,
     borderRadius: BorderRadius.md,
     marginBottom: Spacing.md,
+  },
+  reminderBanner: {
+    flexDirection: "row",
+    alignItems: "center",
+    padding: Spacing.md,
+    borderRadius: BorderRadius.md,
+    marginBottom: Spacing.md,
+  },
+  reminderInfo: {
+    marginLeft: Spacing.md,
+    flex: 1,
+  },
+  appointmentLoading: {
+    flexDirection: "row",
+    alignItems: "center",
+    padding: Spacing.md,
+  },
+  appointmentScroll: {
+    marginBottom: Spacing.md,
+  },
+  appointmentCard: {
+    padding: Spacing.md,
+    borderRadius: BorderRadius.md,
+    marginRight: Spacing.sm,
+    minWidth: 120,
+    alignItems: "center",
+    borderWidth: 1,
+    borderColor: "transparent",
+  },
+  appointmentDate: {
+    fontWeight: "600",
+    marginBottom: Spacing.xs,
   },
   label: {
     fontWeight: "600",

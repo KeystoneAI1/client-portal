@@ -23,6 +23,13 @@ import { useProperty } from "@/lib/propertyContext";
 import { Spacing } from "@/constants/theme";
 import { storage, ServicePlan, Job, Invoice } from "@/lib/storage";
 import { RootStackParamList } from "@/navigation/RootStackNavigator";
+import { getApiUrl } from "@/lib/query-client";
+
+interface ServiceReminder {
+  id: number;
+  name: string;
+  settingsjobdescriptionid: number;
+}
 
 type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
 
@@ -39,6 +46,27 @@ export default function HomeScreen() {
   const [activePlan, setActivePlan] = useState<ServicePlan | null>(null);
   const [upcomingJob, setUpcomingJob] = useState<Job | null>(null);
   const [pendingInvoices, setPendingInvoices] = useState<Invoice[]>([]);
+  const [dueReminder, setDueReminder] = useState<ServiceReminder | null>(null);
+
+  const loadServiceReminders = useCallback(async () => {
+    try {
+      const response = await fetch(
+        new URL("/api/commusoft/servicereminders", getApiUrl()).toString()
+      );
+      if (response.ok) {
+        const data = await response.json();
+        const reminders = data.servicereminders || [];
+        const boilerService = reminders.find(
+          (r: ServiceReminder) => r.name === "Boiler Service - Natural Gas"
+        );
+        if (boilerService) {
+          setDueReminder(boilerService);
+        }
+      }
+    } catch (error) {
+      console.error("Failed to load service reminders:", error);
+    }
+  }, []);
 
   const loadData = useCallback(async () => {
     const [plans, jobs, invoices] = await Promise.all([
@@ -59,7 +87,9 @@ export default function HomeScreen() {
       (i) => i.status === "pending" || i.status === "overdue",
     );
     setPendingInvoices(pending);
-  }, []);
+
+    await loadServiceReminders();
+  }, [loadServiceReminders]);
 
   useFocusEffect(
     useCallback(() => {
@@ -117,6 +147,25 @@ export default function HomeScreen() {
         </View>
       </View>
 
+      {dueReminder ? (
+        <>
+          <SectionHeader title="Service Due" />
+          <SummaryCard
+            icon="bell"
+            title={dueReminder.name}
+            subtitle="Your annual service is due - tap to book"
+            status="pending"
+            onPress={() =>
+              navigation.navigate("BookService", {
+                preselectedJobDescriptionId: dueReminder.settingsjobdescriptionid,
+                serviceName: dueReminder.name,
+              })
+            }
+            testID="card-service-due"
+          />
+        </>
+      ) : null}
+
       <SectionHeader title="Quick Actions" />
       <View style={styles.quickActions}>
         <QuickActionCard
@@ -124,7 +173,7 @@ export default function HomeScreen() {
           title="Book Service"
           subtitle="Schedule"
           color={theme.accent}
-          onPress={() => navigation.navigate("BookService")}
+          onPress={() => navigation.navigate("BookService", {})}
           testID="action-book-service"
         />
         <View style={styles.quickActionSpacer} />
