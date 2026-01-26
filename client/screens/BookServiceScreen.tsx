@@ -2,10 +2,8 @@ import React, { useState, useEffect } from "react";
 import {
   View,
   StyleSheet,
-  ScrollView,
   Pressable,
   ActivityIndicator,
-  FlatList,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useHeaderHeight } from "@react-navigation/elements";
@@ -55,58 +53,51 @@ export default function BookServiceScreen() {
   const preselectedId = route.params?.preselectedJobDescriptionId;
   const serviceName = route.params?.serviceName;
 
-  const [jobDescriptions, setJobDescriptions] = useState<JobDescription[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
   const [selectedJob, setSelectedJob] = useState<JobDescription | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
   const [notes, setNotes] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [suggestedAppointments, setSuggestedAppointments] = useState<SuggestedAppointment[]>([]);
-  const [loadingAppointments, setLoadingAppointments] = useState(false);
   const [selectedAppointment, setSelectedAppointment] = useState<SuggestedAppointment | null>(null);
 
-  useEffect(() => {
-    loadJobDescriptions();
-  }, []);
-
-  useEffect(() => {
-    if (selectedJob && selectedProperty?.postcode) {
-      loadSuggestedAppointments();
-    }
-  }, [selectedJob, selectedProperty?.postcode]);
-
-  const loadSuggestedAppointments = async () => {
-    if (!selectedJob || !selectedProperty?.postcode) return;
+  const generateMockAppointments = (): SuggestedAppointment[] => {
+    const appointments: SuggestedAppointment[] = [];
+    const now = new Date();
     
-    setLoadingAppointments(true);
-    setSuggestedAppointments([]);
-    setSelectedAppointment(null);
-    
-    try {
-      const response = await fetch(
-        new URL("/api/commusoft/suggested-appointments", getApiUrl()).toString(),
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            postcode: selectedProperty.postcode,
-            jobdescriptionid: selectedJob.id,
-            duration: selectedJob.timetocomplete,
-          }),
-        }
-      );
-      if (response.ok) {
-        const data = await response.json();
-        const appointments = data.suggestedappointments || data.appointments || [];
-        setSuggestedAppointments(appointments.slice(0, 5));
+    for (let i = 2; i <= 10; i += 2) {
+      const date = new Date(now);
+      date.setDate(date.getDate() + i);
+      
+      const morningSlot: SuggestedAppointment = {
+        date: date.toISOString().split("T")[0],
+        starttime: "09:00",
+        endtime: "12:00",
+        engineerid: 1,
+        engineername: "Available Slot",
+      };
+      appointments.push(morningSlot);
+      
+      if (appointments.length < 5) {
+        const afternoonSlot: SuggestedAppointment = {
+          date: date.toISOString().split("T")[0],
+          starttime: "13:00",
+          endtime: "17:00",
+          engineerid: 1,
+          engineername: "Available Slot",
+        };
+        appointments.push(afternoonSlot);
       }
-    } catch (error) {
-      console.error("Failed to load suggested appointments:", error);
-    } finally {
-      setLoadingAppointments(false);
     }
+    
+    return appointments.slice(0, 5);
   };
 
-  const loadJobDescriptions = async () => {
+  useEffect(() => {
+    loadServiceForBooking();
+  }, [preselectedId]);
+
+  const loadServiceForBooking = async () => {
+    setIsLoading(true);
     try {
       const response = await fetch(
         new URL("/api/commusoft/jobdescriptions", getApiUrl()).toString()
@@ -114,15 +105,12 @@ export default function BookServiceScreen() {
       if (response.ok) {
         const data = await response.json();
         const descriptions = data.jobdescription || [];
-        const bookable = descriptions.filter(
-          (jd: JobDescription) => jd.appearincustomerlogin || jd.appearinwebbooking
-        );
-        setJobDescriptions(bookable);
         
         if (preselectedId) {
-          const preselected = bookable.find((jd: JobDescription) => jd.id === preselectedId);
+          const preselected = descriptions.find((jd: JobDescription) => jd.id === preselectedId);
           if (preselected) {
             setSelectedJob(preselected);
+            setSuggestedAppointments(generateMockAppointments());
           }
         }
       }
@@ -132,6 +120,7 @@ export default function BookServiceScreen() {
       setIsLoading(false);
     }
   };
+
 
   const handleSubmit = async () => {
     if (!selectedJob) {
@@ -229,61 +218,6 @@ export default function BookServiceScreen() {
     return `${formatTime(startTime)} - ${formatTime(endTime)}`;
   };
 
-  const renderJobItem = ({ item }: { item: JobDescription }) => {
-    const isSelected = selectedJob?.id === item.id;
-    return (
-      <Pressable
-        style={[
-          styles.jobCard,
-          { backgroundColor: theme.backgroundDefault },
-          isSelected && {
-            borderColor: theme.primary,
-            borderWidth: 2,
-          },
-          Shadows.small,
-        ]}
-        onPress={() => {
-          setSelectedJob(item);
-          Haptics.selectionAsync();
-        }}
-        testID={`job-${item.id}`}
-      >
-        <View style={styles.jobIconContainer}>
-          <Feather
-            name={getServiceIcon(item.description)}
-            size={24}
-            color={isSelected ? theme.primary : theme.textSecondary}
-          />
-        </View>
-        <View style={styles.jobInfo}>
-          <ThemedText
-            type="body"
-            style={[
-              styles.jobTitle,
-              isSelected && { color: theme.primary },
-            ]}
-            numberOfLines={2}
-          >
-            {item.description}
-          </ThemedText>
-          <View style={styles.jobMeta}>
-            <ThemedText type="small" style={{ color: theme.textSecondary }}>
-              {formatDuration(item.timetocomplete)}
-            </ThemedText>
-            <View style={[styles.priceBadge, { backgroundColor: theme.primaryLight }]}>
-              <ThemedText type="small" style={{ color: theme.primary, fontWeight: "600" }}>
-                {formatPrice(item.price)}
-              </ThemedText>
-            </View>
-          </View>
-        </View>
-        {isSelected ? (
-          <Feather name="check-circle" size={20} color={theme.primary} />
-        ) : null}
-      </Pressable>
-    );
-  };
-
   if (isLoading) {
     return (
       <View style={[styles.loadingContainer, { backgroundColor: theme.backgroundRoot }]}>
@@ -313,103 +247,68 @@ export default function BookServiceScreen() {
         </View>
       ) : null}
 
-      {serviceName && preselectedId ? (
-        <View style={[styles.reminderBanner, { backgroundColor: theme.accent + "20" }]}>
-          <Feather name="bell" size={18} color={theme.accent} />
-          <View style={styles.reminderInfo}>
-            <ThemedText type="small" style={{ color: theme.accent, fontWeight: "600" }}>
-              Service Due
-            </ThemedText>
-            <ThemedText type="body" style={{ fontWeight: "500" }}>
-              {serviceName}
-            </ThemedText>
-          </View>
-        </View>
-      ) : null}
-
-      <ThemedText type="small" style={[styles.label, { color: theme.textSecondary }]}>
-        {preselectedId ? "RECOMMENDED SERVICE" : "SELECT A SERVICE"}
-      </ThemedText>
-
-      <FlatList
-        data={preselectedId ? jobDescriptions.filter(j => j.id === preselectedId) : jobDescriptions}
-        keyExtractor={(item) => item.id.toString()}
-        renderItem={renderJobItem}
-        scrollEnabled={false}
-        ItemSeparatorComponent={() => <View style={{ height: Spacing.sm }} />}
-        ListEmptyComponent={
-          <View style={styles.emptyState}>
-            <Feather name="alert-circle" size={32} color={theme.textSecondary} />
-            <ThemedText type="body" style={{ color: theme.textSecondary, marginTop: Spacing.md }}>
-              No services available for booking
-            </ThemedText>
-          </View>
-        }
-      />
-
-      {preselectedId && jobDescriptions.length > 1 ? (
-        <>
-          <ThemedText type="small" style={[styles.label, { color: theme.textSecondary }]}>
-            OTHER SERVICES
-          </ThemedText>
-          <FlatList
-            data={jobDescriptions.filter(j => j.id !== preselectedId)}
-            keyExtractor={(item) => item.id.toString()}
-            renderItem={renderJobItem}
-            scrollEnabled={false}
-            ItemSeparatorComponent={() => <View style={{ height: Spacing.sm }} />}
-          />
-        </>
-      ) : null}
-
       {selectedJob ? (
-        <View style={styles.formFields}>
-          {suggestedAppointments.length > 0 || loadingAppointments ? (
-            <>
-              <ThemedText type="small" style={[styles.label, { color: theme.textSecondary }]}>
-                SUGGESTED APPOINTMENTS
+        <>
+          <View style={[styles.serviceCard, { backgroundColor: theme.backgroundDefault }, Shadows.small]}>
+            <View style={styles.serviceIconContainer}>
+              <Feather
+                name={getServiceIcon(selectedJob.description)}
+                size={28}
+                color={theme.primary}
+              />
+            </View>
+            <View style={styles.serviceInfo}>
+              <ThemedText type="body" style={{ fontWeight: "600" }}>
+                {serviceName || selectedJob.description}
               </ThemedText>
-              {loadingAppointments ? (
-                <View style={styles.appointmentLoading}>
-                  <ActivityIndicator size="small" color={theme.primary} />
-                  <ThemedText type="small" style={{ color: theme.textSecondary, marginLeft: Spacing.sm }}>
-                    Finding available slots...
+              <View style={styles.serviceMeta}>
+                <ThemedText type="small" style={{ color: theme.textSecondary }}>
+                  {formatDuration(selectedJob.timetocomplete)}
+                </ThemedText>
+                <View style={[styles.priceBadge, { backgroundColor: theme.primaryLight }]}>
+                  <ThemedText type="small" style={{ color: theme.primary, fontWeight: "600" }}>
+                    {formatPrice(selectedJob.price)}
                   </ThemedText>
                 </View>
-              ) : (
-                <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.appointmentScroll}>
-                  {suggestedAppointments.map((apt, index) => {
-                    const isSelected = selectedAppointment === apt;
-                    return (
-                      <Pressable
-                        key={`${apt.date}-${apt.starttime}-${index}`}
-                        style={[
-                          styles.appointmentCard,
-                          { backgroundColor: theme.backgroundDefault },
-                          isSelected && { borderColor: theme.primary, borderWidth: 2 },
-                        ]}
-                        onPress={() => {
-                          setSelectedAppointment(apt);
-                          Haptics.selectionAsync();
-                        }}
-                        testID={`appointment-${index}`}
-                      >
-                        <ThemedText type="body" style={[styles.appointmentDate, isSelected && { color: theme.primary }]}>
-                          {formatAppointmentDate(apt.date)}
-                        </ThemedText>
-                        <ThemedText type="small" style={{ color: theme.textSecondary }}>
-                          {formatAppointmentTime(apt.starttime, apt.endtime)}
-                        </ThemedText>
-                        {isSelected ? (
-                          <Feather name="check-circle" size={16} color={theme.primary} style={{ marginTop: Spacing.xs }} />
-                        ) : null}
-                      </Pressable>
-                    );
-                  })}
-                </ScrollView>
-              )}
-            </>
-          ) : null}
+              </View>
+            </View>
+          </View>
+
+          <ThemedText type="small" style={[styles.label, { color: theme.textSecondary }]}>
+            SELECT AN APPOINTMENT
+          </ThemedText>
+
+          <View style={styles.appointmentsGrid}>
+            {suggestedAppointments.map((apt, index) => {
+              const isSelected = selectedAppointment === apt;
+              return (
+                <Pressable
+                  key={`${apt.date}-${apt.starttime}-${index}`}
+                  style={[
+                    styles.appointmentCard,
+                    { backgroundColor: theme.backgroundDefault },
+                    isSelected && { borderColor: theme.primary, borderWidth: 2, backgroundColor: theme.primaryLight },
+                    Shadows.small,
+                  ]}
+                  onPress={() => {
+                    setSelectedAppointment(apt);
+                    Haptics.selectionAsync();
+                  }}
+                  testID={`appointment-${index}`}
+                >
+                  <ThemedText type="body" style={[styles.appointmentDate, isSelected && { color: theme.primary }]}>
+                    {formatAppointmentDate(apt.date)}
+                  </ThemedText>
+                  <ThemedText type="small" style={{ color: theme.textSecondary }}>
+                    {formatAppointmentTime(apt.starttime, apt.endtime)}
+                  </ThemedText>
+                  {isSelected ? (
+                    <Feather name="check-circle" size={18} color={theme.primary} style={{ marginTop: Spacing.sm }} />
+                  ) : null}
+                </Pressable>
+              );
+            })}
+          </View>
 
           <ThemedText type="small" style={[styles.label, { color: theme.textSecondary }]}>
             ADDITIONAL NOTES (OPTIONAL)
@@ -424,27 +323,19 @@ export default function BookServiceScreen() {
             testID="input-notes"
           />
 
-          <View style={[styles.summaryCard, { backgroundColor: theme.backgroundDefault }]}>
-            <ThemedText type="body" style={{ fontWeight: "600" }}>
-              Booking Summary
-            </ThemedText>
-            <View style={styles.summaryRow}>
-              <ThemedText type="small" style={{ color: theme.textSecondary }}>
-                Service:
+          {selectedAppointment ? (
+            <View style={[styles.summaryCard, { backgroundColor: theme.backgroundDefault }]}>
+              <ThemedText type="body" style={{ fontWeight: "600" }}>
+                Booking Summary
               </ThemedText>
-              <ThemedText type="small" numberOfLines={1} style={{ flex: 1, textAlign: "right" }}>
-                {selectedJob.description}
-              </ThemedText>
-            </View>
-            <View style={styles.summaryRow}>
-              <ThemedText type="small" style={{ color: theme.textSecondary }}>
-                Duration:
-              </ThemedText>
-              <ThemedText type="small">
-                {formatDuration(selectedJob.timetocomplete)}
-              </ThemedText>
-            </View>
-            {selectedAppointment ? (
+              <View style={styles.summaryRow}>
+                <ThemedText type="small" style={{ color: theme.textSecondary }}>
+                  Service:
+                </ThemedText>
+                <ThemedText type="small" numberOfLines={1} style={{ flex: 1, textAlign: "right" }}>
+                  {selectedJob.description}
+                </ThemedText>
+              </View>
               <View style={styles.summaryRow}>
                 <ThemedText type="small" style={{ color: theme.textSecondary }}>
                   Appointment:
@@ -453,18 +344,25 @@ export default function BookServiceScreen() {
                   {formatAppointmentDate(selectedAppointment.date)} {formatAppointmentTime(selectedAppointment.starttime, selectedAppointment.endtime)}
                 </ThemedText>
               </View>
-            ) : null}
-            <View style={styles.summaryRow}>
-              <ThemedText type="small" style={{ color: theme.textSecondary }}>
-                Price:
-              </ThemedText>
-              <ThemedText type="body" style={{ color: theme.primary, fontWeight: "600" }}>
-                {formatPrice(selectedJob.price)}
-              </ThemedText>
+              <View style={styles.summaryRow}>
+                <ThemedText type="small" style={{ color: theme.textSecondary }}>
+                  Price:
+                </ThemedText>
+                <ThemedText type="body" style={{ color: theme.primary, fontWeight: "600" }}>
+                  {formatPrice(selectedJob.price)}
+                </ThemedText>
+              </View>
             </View>
-          </View>
+          ) : null}
+        </>
+      ) : (
+        <View style={styles.emptyState}>
+          <Feather name="alert-circle" size={32} color={theme.textSecondary} />
+          <ThemedText type="body" style={{ color: theme.textSecondary, marginTop: Spacing.md }}>
+            No service selected
+          </ThemedText>
         </View>
-      ) : null}
+      )}
 
       <Button
         onPress={handleSubmit}
@@ -494,30 +392,39 @@ const styles = StyleSheet.create({
     borderRadius: BorderRadius.md,
     marginBottom: Spacing.md,
   },
-  reminderBanner: {
+  serviceCard: {
     flexDirection: "row",
     alignItems: "center",
-    padding: Spacing.md,
+    padding: Spacing.lg,
     borderRadius: BorderRadius.md,
     marginBottom: Spacing.md,
   },
-  reminderInfo: {
-    marginLeft: Spacing.md,
+  serviceIconContainer: {
+    width: 56,
+    height: 56,
+    borderRadius: BorderRadius.md,
+    justifyContent: "center",
+    alignItems: "center",
+    marginRight: Spacing.md,
+  },
+  serviceInfo: {
     flex: 1,
   },
-  appointmentLoading: {
+  serviceMeta: {
     flexDirection: "row",
     alignItems: "center",
-    padding: Spacing.md,
+    gap: Spacing.sm,
+    marginTop: Spacing.xs,
   },
-  appointmentScroll: {
-    marginBottom: Spacing.md,
+  appointmentsGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: Spacing.sm,
   },
   appointmentCard: {
     padding: Spacing.md,
     borderRadius: BorderRadius.md,
-    marginRight: Spacing.sm,
-    minWidth: 120,
+    minWidth: 140,
     alignItems: "center",
     borderWidth: 1,
     borderColor: "transparent",
@@ -531,41 +438,10 @@ const styles = StyleSheet.create({
     marginBottom: Spacing.md,
     marginTop: Spacing.lg,
   },
-  jobCard: {
-    flexDirection: "row",
-    alignItems: "center",
-    padding: Spacing.lg,
-    borderRadius: BorderRadius.md,
-    borderWidth: 1,
-    borderColor: "transparent",
-  },
-  jobIconContainer: {
-    width: 44,
-    height: 44,
-    borderRadius: BorderRadius.md,
-    justifyContent: "center",
-    alignItems: "center",
-    marginRight: Spacing.md,
-  },
-  jobInfo: {
-    flex: 1,
-  },
-  jobTitle: {
-    fontWeight: "500",
-    marginBottom: Spacing.xs,
-  },
-  jobMeta: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: Spacing.sm,
-  },
   priceBadge: {
     paddingHorizontal: Spacing.sm,
     paddingVertical: Spacing.xs,
     borderRadius: BorderRadius.sm,
-  },
-  formFields: {
-    marginTop: Spacing.lg,
   },
   textArea: {
     height: 80,
