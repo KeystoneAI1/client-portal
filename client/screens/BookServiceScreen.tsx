@@ -17,8 +17,6 @@ import { storage, Appliance, Job } from "@/lib/storage";
 const SERVICE_TYPES = [
   { id: "repair", label: "Repair", icon: "tool" as const },
   { id: "service", label: "Annual Service", icon: "check-circle" as const },
-  { id: "installation", label: "Installation", icon: "plus-circle" as const },
-  { id: "inspection", label: "Inspection", icon: "search" as const },
 ];
 
 export default function BookServiceScreen() {
