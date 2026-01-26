@@ -1,9 +1,12 @@
 import type { Express, Request, Response } from "express";
 import { createServer, type Server } from "node:http";
+import { registerCommusoftRoutes, isCommusoftConfigured } from "./commusoft";
 
 const VAI_API_URL = "https://vai.keystoneai.tech";
 
 export async function registerRoutes(app: Express): Promise<Server> {
+  registerCommusoftRoutes(app);
+
   app.post("/api/chat", async (req: Request, res: Response) => {
     try {
       const { message, history } = req.body;
@@ -93,7 +96,11 @@ Key guidelines:
   });
 
   app.get("/api/health", (_req: Request, res: Response) => {
-    res.json({ status: "ok", timestamp: new Date().toISOString() });
+    res.json({ 
+      status: "ok", 
+      timestamp: new Date().toISOString(),
+      commusoft: isCommusoftConfigured() ? "configured" : "not_configured",
+    });
   });
 
   const httpServer = createServer(app);
