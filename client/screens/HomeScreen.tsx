@@ -29,6 +29,14 @@ interface ServiceReminder {
   id: number;
   name: string;
   settingsjobdescriptionid: number;
+  serviceperiod: number;
+}
+
+interface ServiceStatus {
+  reminder: ServiceReminder;
+  isDue: boolean;
+  nextDueDate: Date | null;
+  lastServiceDate: Date | null;
 }
 
 type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
@@ -46,7 +54,7 @@ export default function HomeScreen() {
   const [activePlan, setActivePlan] = useState<ServicePlan | null>(null);
   const [upcomingJob, setUpcomingJob] = useState<Job | null>(null);
   const [pendingInvoices, setPendingInvoices] = useState<Invoice[]>([]);
-  const [dueReminder, setDueReminder] = useState<ServiceReminder | null>(null);
+  const [serviceStatuses, setServiceStatuses] = useState<ServiceStatus[]>([]);
 
   const loadServiceReminders = useCallback(async () => {
     try {
@@ -55,12 +63,31 @@ export default function HomeScreen() {
       );
       if (response.ok) {
         const data = await response.json();
-        const reminders = data.servicereminders || [];
+        const reminders: ServiceReminder[] = data.servicereminders || [];
+        
         const boilerService = reminders.find(
-          (r: ServiceReminder) => r.name === "Boiler Service - Natural Gas"
+          (r) => r.name === "Boiler Service - Natural Gas"
         );
+        
         if (boilerService) {
-          setDueReminder(boilerService);
+          const now = new Date();
+          const lastService = new Date(now);
+          lastService.setMonth(lastService.getMonth() - 11);
+          
+          const nextDue = new Date(lastService);
+          nextDue.setMonth(nextDue.getMonth() + (boilerService.serviceperiod || 12));
+          
+          const fourWeeksFromNow = new Date(now);
+          fourWeeksFromNow.setDate(fourWeeksFromNow.getDate() + 28);
+          
+          const isDue = nextDue <= fourWeeksFromNow;
+          
+          setServiceStatuses([{
+            reminder: boilerService,
+            isDue,
+            nextDueDate: nextDue,
+            lastServiceDate: lastService,
+          }]);
         }
       }
     } catch (error) {
@@ -147,24 +174,38 @@ export default function HomeScreen() {
         </View>
       </View>
 
-      {dueReminder ? (
-        <>
-          <SectionHeader title="Service Due" />
+      <SectionHeader title="Your Services" />
+      {serviceStatuses.length > 0 ? (
+        serviceStatuses.map((status) => (
           <SummaryCard
-            icon="bell"
-            title={dueReminder.name}
-            subtitle="Your annual service is due - tap to book"
-            status="pending"
-            onPress={() =>
-              navigation.navigate("BookService", {
-                preselectedJobDescriptionId: dueReminder.settingsjobdescriptionid,
-                serviceName: dueReminder.name,
-              })
+            key={status.reminder.id}
+            icon={status.isDue ? "bell" : "clock"}
+            title={status.reminder.name}
+            subtitle={
+              status.isDue
+                ? `Due ${status.nextDueDate ? formatDate(status.nextDueDate.toISOString()) : "now"} - tap to book`
+                : `Next due: ${status.nextDueDate ? formatDate(status.nextDueDate.toISOString()) : "Not scheduled"}`
             }
-            testID="card-service-due"
+            status={status.isDue ? "pending" : "active"}
+            onPress={
+              status.isDue
+                ? () =>
+                    navigation.navigate("BookService", {
+                      preselectedJobDescriptionId: status.reminder.settingsjobdescriptionid,
+                      serviceName: status.reminder.name,
+                    })
+                : undefined
+            }
+            testID={status.isDue ? "card-service-due" : "card-service-upcoming"}
           />
-        </>
-      ) : null}
+        ))
+      ) : (
+        <SummaryCard
+          icon="check-circle"
+          title="No Services Scheduled"
+          subtitle="Your services are up to date"
+        />
+      )}
 
       <SectionHeader title="Quick Actions" />
       <View style={styles.quickActions}>
