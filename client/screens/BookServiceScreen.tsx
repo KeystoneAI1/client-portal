@@ -1,5 +1,12 @@
 import React, { useState, useEffect } from "react";
-import { View, StyleSheet, ScrollView, Pressable } from "react-native";
+import {
+  View,
+  StyleSheet,
+  ScrollView,
+  Pressable,
+  ActivityIndicator,
+  FlatList,
+} from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useHeaderHeight } from "@react-navigation/elements";
 import { useNavigation } from "@react-navigation/native";
@@ -11,38 +18,60 @@ import { ThemedText } from "@/components/ThemedText";
 import { InputField } from "@/components/InputField";
 import { Button } from "@/components/Button";
 import { useTheme } from "@/hooks/useTheme";
+import { useAuth } from "@/hooks/useAuth";
+import { useProperty } from "@/lib/propertyContext";
 import { Spacing, BorderRadius, Shadows } from "@/constants/theme";
-import { storage, Appliance, Job } from "@/lib/storage";
+import { getApiUrl } from "@/lib/query-client";
 
-const SERVICE_TYPES = [
-  { id: "repair", label: "Repair", icon: "tool" as const },
-  { id: "service", label: "Annual Service", icon: "check-circle" as const },
-];
+interface JobDescription {
+  id: number;
+  description: string;
+  timetocomplete: number;
+  price: number;
+  appearincustomerlogin: boolean;
+  appearinwebbooking: boolean;
+}
 
 export default function BookServiceScreen() {
   const insets = useSafeAreaInsets();
   const headerHeight = useHeaderHeight();
   const { theme } = useTheme();
   const navigation = useNavigation();
+  const { user } = useAuth();
+  const { selectedProperty } = useProperty();
 
-  const [appliances, setAppliances] = useState<Appliance[]>([]);
-  const [selectedType, setSelectedType] = useState<string>("");
-  const [selectedAppliance, setSelectedAppliance] = useState<string>("");
-  const [description, setDescription] = useState("");
-  const [preferredDate, setPreferredDate] = useState("");
+  const [jobDescriptions, setJobDescriptions] = useState<JobDescription[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [selectedJob, setSelectedJob] = useState<JobDescription | null>(null);
+  const [notes, setNotes] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   useEffect(() => {
-    loadAppliances();
+    loadJobDescriptions();
   }, []);
 
-  const loadAppliances = async () => {
-    const data = await storage.getAppliances();
-    setAppliances(data);
+  const loadJobDescriptions = async () => {
+    try {
+      const response = await fetch(
+        new URL("/api/commusoft/jobdescriptions", getApiUrl()).toString()
+      );
+      if (response.ok) {
+        const data = await response.json();
+        const descriptions = data.jobdescription || [];
+        const bookable = descriptions.filter(
+          (jd: JobDescription) => jd.appearincustomerlogin || jd.appearinwebbooking
+        );
+        setJobDescriptions(bookable);
+      }
+    } catch (error) {
+      console.error("Failed to load job descriptions:", error);
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   const handleSubmit = async () => {
-    if (!selectedType || !description.trim()) {
+    if (!selectedJob) {
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
       return;
     }
@@ -51,21 +80,37 @@ export default function BookServiceScreen() {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
 
     try {
-      const existingJobs = await storage.getJobs();
+      const accountNumber = user?.accountNumber;
+      if (!accountNumber) {
+        throw new Error("No account number");
+      }
 
-      const newJob: Job = {
-        id: Date.now().toString(),
-        type: selectedType as Job["type"],
-        status: "scheduled",
-        description: description.trim(),
-        scheduledDate: preferredDate || new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().split("T")[0],
-        applianceId: selectedAppliance || undefined,
+      const jobData = {
+        job: {
+          description: selectedJob.description,
+          jobdescriptionid: selectedJob.id,
+          propertyid: selectedProperty?.id || accountNumber,
+          contactid: user?.contactId,
+          engineernotes: notes.trim() || undefined,
+          priority: "Medium_Importance",
+        },
       };
 
-      await storage.setJobs([...existingJobs, newJob]);
+      const response = await fetch(
+        new URL(`/api/commusoft/customer/${accountNumber}/jobs`, getApiUrl()).toString(),
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(jobData),
+        }
+      );
 
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      navigation.goBack();
+      if (response.ok) {
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+        navigation.goBack();
+      } else {
+        throw new Error("Failed to create job");
+      }
     } catch (error) {
       console.error("Failed to book service:", error);
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
@@ -74,20 +119,98 @@ export default function BookServiceScreen() {
     }
   };
 
-  const getApplianceIcon = (type: Appliance["type"]): keyof typeof Feather.glyphMap => {
-    switch (type) {
-      case "boiler":
-        return "thermometer";
-      case "heating":
-        return "sun";
-      case "electrical":
-        return "zap";
-      case "plumbing":
-        return "droplet";
-      default:
-        return "box";
-    }
+  const getServiceIcon = (description: string): keyof typeof Feather.glyphMap => {
+    const lower = description.toLowerCase();
+    if (lower.includes("boiler") || lower.includes("heating")) return "thermometer";
+    if (lower.includes("gas")) return "wind";
+    if (lower.includes("electric") || lower.includes("eicr")) return "zap";
+    if (lower.includes("plumb")) return "droplet";
+    if (lower.includes("air con") || lower.includes("ac ")) return "wind";
+    if (lower.includes("cylinder")) return "disc";
+    if (lower.includes("fire")) return "sun";
+    if (lower.includes("diagnostic")) return "search";
+    if (lower.includes("pat")) return "check-square";
+    return "tool";
   };
+
+  const formatPrice = (price: number) => {
+    return `£${price.toFixed(2)}`;
+  };
+
+  const formatDuration = (minutes: number) => {
+    if (minutes >= 60) {
+      const hours = Math.floor(minutes / 60);
+      const mins = minutes % 60;
+      return mins > 0 ? `${hours}h ${mins}m` : `${hours}h`;
+    }
+    return `${minutes}m`;
+  };
+
+  const renderJobItem = ({ item }: { item: JobDescription }) => {
+    const isSelected = selectedJob?.id === item.id;
+    return (
+      <Pressable
+        style={[
+          styles.jobCard,
+          { backgroundColor: theme.backgroundDefault },
+          isSelected && {
+            borderColor: theme.primary,
+            borderWidth: 2,
+          },
+          Shadows.small,
+        ]}
+        onPress={() => {
+          setSelectedJob(item);
+          Haptics.selectionAsync();
+        }}
+        testID={`job-${item.id}`}
+      >
+        <View style={styles.jobIconContainer}>
+          <Feather
+            name={getServiceIcon(item.description)}
+            size={24}
+            color={isSelected ? theme.primary : theme.textSecondary}
+          />
+        </View>
+        <View style={styles.jobInfo}>
+          <ThemedText
+            type="body"
+            style={[
+              styles.jobTitle,
+              isSelected && { color: theme.primary },
+            ]}
+            numberOfLines={2}
+          >
+            {item.description}
+          </ThemedText>
+          <View style={styles.jobMeta}>
+            <ThemedText type="small" style={{ color: theme.textSecondary }}>
+              {formatDuration(item.timetocomplete)}
+            </ThemedText>
+            <View style={[styles.priceBadge, { backgroundColor: theme.primaryLight }]}>
+              <ThemedText type="small" style={{ color: theme.primary, fontWeight: "600" }}>
+                {formatPrice(item.price)}
+              </ThemedText>
+            </View>
+          </View>
+        </View>
+        {isSelected ? (
+          <Feather name="check-circle" size={20} color={theme.primary} />
+        ) : null}
+      </Pressable>
+    );
+  };
+
+  if (isLoading) {
+    return (
+      <View style={[styles.loadingContainer, { backgroundColor: theme.backgroundRoot }]}>
+        <ActivityIndicator size="large" color={theme.primary} />
+        <ThemedText type="body" style={{ marginTop: Spacing.md, color: theme.textSecondary }}>
+          Loading available services...
+        </ThemedText>
+      </View>
+    );
+  }
 
   return (
     <KeyboardAwareScrollViewCompat
@@ -98,145 +221,89 @@ export default function BookServiceScreen() {
         paddingHorizontal: Spacing.lg,
       }}
     >
-      <ThemedText type="small" style={[styles.label, { color: theme.textSecondary }]}>
-        SERVICE TYPE
-      </ThemedText>
-      <View style={styles.typeGrid}>
-        {SERVICE_TYPES.map((type) => (
-          <Pressable
-            key={type.id}
-            style={[
-              styles.typeCard,
-              { backgroundColor: theme.backgroundDefault },
-              selectedType === type.id && {
-                borderColor: theme.primary,
-                borderWidth: 2,
-              },
-              Shadows.small,
-            ]}
-            onPress={() => {
-              setSelectedType(type.id);
-              Haptics.selectionAsync();
-            }}
-          >
-            <Feather
-              name={type.icon}
-              size={24}
-              color={selectedType === type.id ? theme.primary : theme.textSecondary}
-            />
-            <ThemedText
-              type="small"
-              style={[
-                styles.typeLabel,
-                selectedType === type.id && { color: theme.primary },
-              ]}
-            >
-              {type.label}
-            </ThemedText>
-          </Pressable>
-        ))}
-      </View>
-
-      {appliances.length > 0 ? (
-        <>
-          <ThemedText
-            type="small"
-            style={[styles.label, { color: theme.textSecondary }]}
-          >
-            APPLIANCE (OPTIONAL)
+      {selectedProperty ? (
+        <View style={[styles.propertyBanner, { backgroundColor: theme.backgroundDefault }]}>
+          <Feather name="map-pin" size={16} color={theme.primary} />
+          <ThemedText type="small" style={{ color: theme.text, marginLeft: Spacing.sm }}>
+            Booking for: {selectedProperty.addressLine1}, {selectedProperty.postcode}
           </ThemedText>
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            style={styles.applianceScroll}
-          >
-            <Pressable
-              style={[
-                styles.applianceChip,
-                { backgroundColor: theme.backgroundDefault },
-                !selectedAppliance && {
-                  borderColor: theme.primary,
-                  borderWidth: 2,
-                },
-              ]}
-              onPress={() => {
-                setSelectedAppliance("");
-                Haptics.selectionAsync();
-              }}
-            >
-              <ThemedText type="small">Not specified</ThemedText>
-            </Pressable>
-            {appliances.map((appliance) => (
-              <Pressable
-                key={appliance.id}
-                style={[
-                  styles.applianceChip,
-                  { backgroundColor: theme.backgroundDefault },
-                  selectedAppliance === appliance.id && {
-                    borderColor: theme.primary,
-                    borderWidth: 2,
-                  },
-                ]}
-                onPress={() => {
-                  setSelectedAppliance(appliance.id);
-                  Haptics.selectionAsync();
-                }}
-              >
-                <Feather
-                  name={getApplianceIcon(appliance.type)}
-                  size={16}
-                  color={
-                    selectedAppliance === appliance.id
-                      ? theme.primary
-                      : theme.textSecondary
-                  }
-                  style={styles.applianceIcon}
-                />
-                <ThemedText
-                  type="small"
-                  style={
-                    selectedAppliance === appliance.id
-                      ? { color: theme.primary }
-                      : undefined
-                  }
-                >
-                  {appliance.name}
-                </ThemedText>
-              </Pressable>
-            ))}
-          </ScrollView>
-        </>
+        </View>
       ) : null}
 
-      <View style={styles.formFields}>
-        <InputField
-          label="Description"
-          placeholder="Describe the issue or service needed..."
-          value={description}
-          onChangeText={setDescription}
-          multiline
-          numberOfLines={4}
-          style={styles.textArea}
-          testID="input-description"
-        />
+      <ThemedText type="small" style={[styles.label, { color: theme.textSecondary }]}>
+        SELECT A SERVICE
+      </ThemedText>
 
-        <InputField
-          label="Preferred Date (YYYY-MM-DD)"
-          placeholder="e.g., 2025-02-15"
-          value={preferredDate}
-          onChangeText={setPreferredDate}
-          keyboardType="numbers-and-punctuation"
-          testID="input-date"
-        />
-      </View>
+      <FlatList
+        data={jobDescriptions}
+        keyExtractor={(item) => item.id.toString()}
+        renderItem={renderJobItem}
+        scrollEnabled={false}
+        ItemSeparatorComponent={() => <View style={{ height: Spacing.sm }} />}
+        ListEmptyComponent={
+          <View style={styles.emptyState}>
+            <Feather name="alert-circle" size={32} color={theme.textSecondary} />
+            <ThemedText type="body" style={{ color: theme.textSecondary, marginTop: Spacing.md }}>
+              No services available for booking
+            </ThemedText>
+          </View>
+        }
+      />
+
+      {selectedJob ? (
+        <View style={styles.formFields}>
+          <ThemedText type="small" style={[styles.label, { color: theme.textSecondary }]}>
+            ADDITIONAL NOTES (OPTIONAL)
+          </ThemedText>
+          <InputField
+            placeholder="Any specific details or access instructions..."
+            value={notes}
+            onChangeText={setNotes}
+            multiline
+            numberOfLines={3}
+            style={styles.textArea}
+            testID="input-notes"
+          />
+
+          <View style={[styles.summaryCard, { backgroundColor: theme.backgroundDefault }]}>
+            <ThemedText type="body" style={{ fontWeight: "600" }}>
+              Booking Summary
+            </ThemedText>
+            <View style={styles.summaryRow}>
+              <ThemedText type="small" style={{ color: theme.textSecondary }}>
+                Service:
+              </ThemedText>
+              <ThemedText type="small" numberOfLines={1} style={{ flex: 1, textAlign: "right" }}>
+                {selectedJob.description}
+              </ThemedText>
+            </View>
+            <View style={styles.summaryRow}>
+              <ThemedText type="small" style={{ color: theme.textSecondary }}>
+                Duration:
+              </ThemedText>
+              <ThemedText type="small">
+                {formatDuration(selectedJob.timetocomplete)}
+              </ThemedText>
+            </View>
+            <View style={styles.summaryRow}>
+              <ThemedText type="small" style={{ color: theme.textSecondary }}>
+                Price:
+              </ThemedText>
+              <ThemedText type="body" style={{ color: theme.primary, fontWeight: "600" }}>
+                {formatPrice(selectedJob.price)}
+              </ThemedText>
+            </View>
+          </View>
+        </View>
+      ) : null}
 
       <Button
         onPress={handleSubmit}
-        disabled={!selectedType || !description.trim() || isSubmitting}
+        disabled={!selectedJob || isSubmitting}
         style={styles.submitButton}
         testID="button-submit"
       >
-        {isSubmitting ? "Booking..." : "Book Service"}
+        {isSubmitting ? "Booking..." : "Request Booking"}
       </Button>
     </KeyboardAwareScrollViewCompat>
   );
@@ -246,51 +313,80 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
   },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  propertyBanner: {
+    flexDirection: "row",
+    alignItems: "center",
+    padding: Spacing.md,
+    borderRadius: BorderRadius.md,
+    marginBottom: Spacing.md,
+  },
   label: {
     fontWeight: "600",
     marginBottom: Spacing.md,
     marginTop: Spacing.lg,
   },
-  typeGrid: {
+  jobCard: {
     flexDirection: "row",
-    flexWrap: "wrap",
-    marginHorizontal: -Spacing.xs,
-  },
-  typeCard: {
-    width: "48%",
-    marginHorizontal: "1%",
+    alignItems: "center",
     padding: Spacing.lg,
     borderRadius: BorderRadius.md,
+    borderWidth: 1,
+    borderColor: "transparent",
+  },
+  jobIconContainer: {
+    width: 44,
+    height: 44,
+    borderRadius: BorderRadius.md,
+    justifyContent: "center",
     alignItems: "center",
-    marginBottom: Spacing.sm,
+    marginRight: Spacing.md,
   },
-  typeLabel: {
-    marginTop: Spacing.sm,
+  jobInfo: {
+    flex: 1,
+  },
+  jobTitle: {
     fontWeight: "500",
+    marginBottom: Spacing.xs,
   },
-  applianceScroll: {
-    marginBottom: Spacing.md,
-  },
-  applianceChip: {
+  jobMeta: {
     flexDirection: "row",
     alignItems: "center",
-    paddingVertical: Spacing.sm,
-    paddingHorizontal: Spacing.lg,
-    borderRadius: BorderRadius.full,
-    marginRight: Spacing.sm,
+    gap: Spacing.sm,
   },
-  applianceIcon: {
-    marginRight: Spacing.xs,
+  priceBadge: {
+    paddingHorizontal: Spacing.sm,
+    paddingVertical: Spacing.xs,
+    borderRadius: BorderRadius.sm,
   },
   formFields: {
     marginTop: Spacing.lg,
   },
   textArea: {
-    height: 100,
+    height: 80,
     textAlignVertical: "top",
     paddingTop: Spacing.md,
   },
-  submitButton: {
+  summaryCard: {
+    padding: Spacing.lg,
+    borderRadius: BorderRadius.md,
     marginTop: Spacing.lg,
+    gap: Spacing.sm,
+  },
+  summaryRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+  },
+  emptyState: {
+    alignItems: "center",
+    paddingVertical: Spacing.xl,
+  },
+  submitButton: {
+    marginTop: Spacing.xl,
   },
 });

@@ -226,6 +226,30 @@ export async function getCertificate(certificateId: string) {
   });
 }
 
+export async function getJobDescriptions() {
+  return commusoftRequest({
+    endpoint: `/api/v1/jobdescriptions?limit=100`,
+  });
+}
+
+export async function getServiceReminders() {
+  return commusoftRequest({
+    endpoint: `/api/v1/servicereminders?limit=100`,
+  });
+}
+
+export async function getSuggestedAppointments(data: {
+  postcode: string;
+  jobdescriptionid: number;
+  duration: number;
+}) {
+  return commusoftRequest({
+    method: "POST",
+    endpoint: `/api/v1/suggested-appointments`,
+    body: data,
+  });
+}
+
 export async function testConnection(): Promise<{ success: boolean; message: string }> {
   try {
     await getCommusoftToken();
@@ -461,6 +485,53 @@ export function registerCommusoftRoutes(app: any) {
     } catch (error) {
       console.error("Failed to get work address:", error);
       res.status(500).json({ error: "Failed to fetch work address" });
+    }
+  });
+
+  app.get("/api/commusoft/jobdescriptions", async (_req: Request, res: Response) => {
+    try {
+      if (!isCommusoftConfigured()) {
+        return res.status(503).json({ error: "Commusoft API not configured" });
+      }
+      const data = await getJobDescriptions();
+      res.json(data);
+    } catch (error) {
+      console.error("Failed to get job descriptions:", error);
+      res.status(500).json({ error: "Failed to fetch job descriptions" });
+    }
+  });
+
+  app.get("/api/commusoft/servicereminders", async (_req: Request, res: Response) => {
+    try {
+      if (!isCommusoftConfigured()) {
+        return res.status(503).json({ error: "Commusoft API not configured" });
+      }
+      const data = await getServiceReminders();
+      res.json(data);
+    } catch (error) {
+      console.error("Failed to get service reminders:", error);
+      res.status(500).json({ error: "Failed to fetch service reminders" });
+    }
+  });
+
+  app.post("/api/commusoft/suggested-appointments", async (req: Request, res: Response) => {
+    try {
+      if (!isCommusoftConfigured()) {
+        return res.status(503).json({ error: "Commusoft API not configured" });
+      }
+      const { postcode, jobdescriptionid, duration } = req.body;
+      if (!postcode || !jobdescriptionid) {
+        return res.status(400).json({ error: "Missing required fields: postcode and jobdescriptionid" });
+      }
+      const data = await getSuggestedAppointments({
+        postcode,
+        jobdescriptionid,
+        duration: duration || 60,
+      });
+      res.json(data);
+    } catch (error) {
+      console.error("Failed to get suggested appointments:", error);
+      res.status(500).json({ error: "Failed to fetch suggested appointments" });
     }
   });
 }
