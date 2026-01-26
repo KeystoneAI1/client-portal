@@ -235,6 +235,7 @@ export default function HomeScreen() {
                     navigation.navigate("BookService", {
                       preselectedJobDescriptionId: status.reminder.settingsjobdescriptionid,
                       serviceName: status.reminder.name,
+                      serviceReminderId: status.reminder.id,
                     })
                 : undefined
             }

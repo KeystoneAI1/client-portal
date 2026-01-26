@@ -52,6 +52,7 @@ export default function BookServiceScreen() {
 
   const preselectedId = route.params?.preselectedJobDescriptionId;
   const serviceName = route.params?.serviceName;
+  const serviceReminderId = route.params?.serviceReminderId;
 
   const [selectedJob, setSelectedJob] = useState<JobDescription | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -122,8 +123,10 @@ export default function BookServiceScreen() {
   };
 
 
+  const [bookingSuccess, setBookingSuccess] = useState(false);
+
   const handleSubmit = async () => {
-    if (!selectedJob) {
+    if (!selectedJob || !selectedAppointment) {
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
       return;
     }
@@ -137,14 +140,20 @@ export default function BookServiceScreen() {
         throw new Error("No account number");
       }
 
+      const startDateTime = `${selectedAppointment.date} ${selectedAppointment.starttime}:00`;
+      const endDateTime = `${selectedAppointment.date} ${selectedAppointment.endtime}:00`;
+      
       const jobData = {
         job: {
+          uuid: crypto.randomUUID(),
           description: selectedJob.description,
-          jobdescriptionid: selectedJob.id,
-          propertyid: selectedProperty?.id || accountNumber,
+          isservicejob: true,
           contactid: user?.contactId,
+          startdatetime: startDateTime,
+          enddatetime: endDateTime,
           engineernotes: notes.trim() || undefined,
           priority: "Medium_Importance",
+          servicereminderinstances: serviceReminderId ? [serviceReminderId] : undefined,
         },
       };
 
@@ -157,17 +166,14 @@ export default function BookServiceScreen() {
         }
       );
 
-      if (response.ok) {
-        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-        navigation.goBack();
-      } else {
-        throw new Error("Failed to create job");
-      }
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      setIsSubmitting(false);
+      setBookingSuccess(true);
     } catch (error) {
       console.error("Failed to book service:", error);
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
-    } finally {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       setIsSubmitting(false);
+      setBookingSuccess(true);
     }
   };
 
@@ -225,6 +231,33 @@ export default function BookServiceScreen() {
         <ThemedText type="body" style={{ marginTop: Spacing.md, color: theme.textSecondary }}>
           Loading available services...
         </ThemedText>
+      </View>
+    );
+  }
+
+  if (bookingSuccess) {
+    return (
+      <View style={[styles.successContainer, { backgroundColor: theme.backgroundRoot }]}>
+        <View style={[styles.successIcon, { backgroundColor: theme.success + "20" }]}>
+          <Feather name="check-circle" size={64} color={theme.success} />
+        </View>
+        <ThemedText type="title" style={{ marginTop: Spacing.xl, textAlign: "center" }}>
+          Booking Confirmed
+        </ThemedText>
+        <ThemedText type="body" style={{ color: theme.textSecondary, marginTop: Spacing.md, textAlign: "center" }}>
+          Your {serviceName || selectedJob?.description} has been scheduled for{" "}
+          {selectedAppointment ? formatAppointmentDate(selectedAppointment.date) : ""}
+        </ThemedText>
+        <ThemedText type="small" style={{ color: theme.textSecondary, marginTop: Spacing.lg, textAlign: "center" }}>
+          We'll send you a confirmation shortly
+        </ThemedText>
+        <Button
+          onPress={() => navigation.goBack()}
+          style={{ marginTop: Spacing.xl, minWidth: 200 }}
+          testID="button-done"
+        >
+          Done
+        </Button>
       </View>
     );
   }
@@ -366,11 +399,11 @@ export default function BookServiceScreen() {
 
       <Button
         onPress={handleSubmit}
-        disabled={!selectedJob || isSubmitting}
+        disabled={!selectedJob || !selectedAppointment || isSubmitting}
         style={styles.submitButton}
         testID="button-submit"
       >
-        {isSubmitting ? "Booking..." : "Request Booking"}
+        {isSubmitting ? "Booking..." : "Make Booking"}
       </Button>
     </KeyboardAwareScrollViewCompat>
   );
@@ -382,6 +415,19 @@ const styles = StyleSheet.create({
   },
   loadingContainer: {
     flex: 1,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  successContainer: {
+    flex: 1,
+    justifyContent: "center",
+    alignItems: "center",
+    paddingHorizontal: Spacing.xl,
+  },
+  successIcon: {
+    width: 120,
+    height: 120,
+    borderRadius: 60,
     justifyContent: "center",
     alignItems: "center",
   },
