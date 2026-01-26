@@ -4,6 +4,7 @@ import {
   StyleSheet,
   ScrollView,
   RefreshControl,
+  Pressable,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useHeaderHeight } from "@react-navigation/elements";
@@ -55,6 +56,7 @@ export default function HomeScreen() {
   const [upcomingJob, setUpcomingJob] = useState<Job | null>(null);
   const [pendingInvoices, setPendingInvoices] = useState<Invoice[]>([]);
   const [serviceStatuses, setServiceStatuses] = useState<ServiceStatus[]>([]);
+  const [demoMode, setDemoMode] = useState<"due" | "not-due">("not-due");
 
   const loadServiceReminders = useCallback(async () => {
     try {
@@ -71,16 +73,23 @@ export default function HomeScreen() {
         
         if (boilerService) {
           const now = new Date();
-          const lastService = new Date(now);
-          lastService.setMonth(lastService.getMonth() - 11);
+          let lastService: Date;
+          let nextDue: Date;
+          let isDue: boolean;
           
-          const nextDue = new Date(lastService);
-          nextDue.setMonth(nextDue.getMonth() + (boilerService.serviceperiod || 12));
-          
-          const fourWeeksFromNow = new Date(now);
-          fourWeeksFromNow.setDate(fourWeeksFromNow.getDate() + 28);
-          
-          const isDue = nextDue <= fourWeeksFromNow;
+          if (demoMode === "due") {
+            lastService = new Date(now);
+            lastService.setMonth(lastService.getMonth() - 12);
+            nextDue = new Date(now);
+            nextDue.setDate(nextDue.getDate() + 7);
+            isDue = true;
+          } else {
+            lastService = new Date(now);
+            lastService.setMonth(lastService.getMonth() - 10);
+            nextDue = new Date(lastService);
+            nextDue.setMonth(nextDue.getMonth() + 12);
+            isDue = false;
+          }
           
           setServiceStatuses([{
             reminder: boilerService,
@@ -93,7 +102,7 @@ export default function HomeScreen() {
     } catch (error) {
       console.error("Failed to load service reminders:", error);
     }
-  }, []);
+  }, [demoMode]);
 
   const loadData = useCallback(async () => {
     const [plans, jobs, invoices] = await Promise.all([
@@ -114,14 +123,13 @@ export default function HomeScreen() {
       (i) => i.status === "pending" || i.status === "overdue",
     );
     setPendingInvoices(pending);
-
-    await loadServiceReminders();
-  }, [loadServiceReminders]);
+  }, []);
 
   useFocusEffect(
     useCallback(() => {
       loadData();
-    }, [loadData]),
+      loadServiceReminders();
+    }, [loadData, loadServiceReminders]),
   );
 
   const onRefresh = async () => {
@@ -174,7 +182,21 @@ export default function HomeScreen() {
         </View>
       </View>
 
-      <SectionHeader title="Your Services" />
+      <View style={styles.servicesHeader}>
+        <SectionHeader title="Your Services" />
+        <Pressable
+          style={[
+            styles.demoToggle,
+            { backgroundColor: demoMode === "due" ? theme.warning : theme.success },
+          ]}
+          onPress={() => setDemoMode(demoMode === "due" ? "not-due" : "due")}
+          testID="demo-toggle"
+        >
+          <ThemedText style={styles.demoToggleText}>
+            Demo: {demoMode === "due" ? "Due" : "Not Due"}
+          </ThemedText>
+        </Pressable>
+      </View>
       {serviceStatuses.length > 0 ? (
         serviceStatuses.map((status) => (
           <SummaryCard
@@ -310,6 +332,21 @@ const styles = StyleSheet.create({
   },
   propertySelector: {
     marginTop: Spacing.md,
+  },
+  servicesHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+  demoToggle: {
+    paddingHorizontal: Spacing.sm,
+    paddingVertical: Spacing.xs,
+    borderRadius: 12,
+  },
+  demoToggleText: {
+    fontSize: 11,
+    fontWeight: "600",
+    color: "#fff",
   },
   quickActions: {
     flexDirection: "row",
