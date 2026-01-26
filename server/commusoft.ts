@@ -1,8 +1,15 @@
 import type { Request, Response } from "express";
 
 const COMMUSOFT_BASE_URL = "https://app.commusoft.co.uk/webservice_dev.php";
-const CLIENT_ID = "14377";
-const USERNAME = "Matthews";
+
+function getCredentials() {
+  return {
+    clientId: process.env.COMMUSOFT_COMPANY_ID || "",
+    username: process.env.COMMUSOFT_USERNAME || "",
+    password: process.env.COMMUSOFT_PASSWORD || "",
+    applicationId: process.env.COMMUSOFT_API_KEY || "",
+  };
+}
 
 interface TokenResponse {
   token?: string;
@@ -20,11 +27,10 @@ let cachedToken: string | null = null;
 let tokenExpiry: number = 0;
 
 async function getCommusoftToken(): Promise<string> {
-  const applicationId = process.env.COMMUSOFT_TOKEN;
-  const password = process.env.COMMUSOFT_PASSWORD;
+  const creds = getCredentials();
 
-  if (!applicationId || !password) {
-    throw new Error("Commusoft credentials not configured (COMMUSOFT_TOKEN and COMMUSOFT_PASSWORD required)");
+  if (!creds.clientId || !creds.username || !creds.password || !creds.applicationId) {
+    throw new Error("Commusoft credentials not fully configured (COMMUSOFT_COMPANY_ID, COMMUSOFT_USERNAME, COMMUSOFT_PASSWORD, and COMMUSOFT_API_KEY required)");
   }
 
   if (cachedToken && Date.now() < tokenExpiry) {
@@ -39,10 +45,10 @@ async function getCommusoftToken(): Promise<string> {
       "Content-Type": "application/json",
     },
     body: JSON.stringify({
-      clientId: CLIENT_ID,
-      username: USERNAME,
-      password: password,
-      applicationId: applicationId,
+      clientId: creds.clientId,
+      username: creds.username,
+      password: creds.password,
+      applicationId: creds.applicationId,
     }),
   });
 
@@ -106,7 +112,8 @@ async function commusoftRequest<T>({
 }
 
 export function isCommusoftConfigured(): boolean {
-  return !!(process.env.COMMUSOFT_TOKEN && process.env.COMMUSOFT_PASSWORD);
+  const creds = getCredentials();
+  return !!(creds.clientId && creds.username && creds.password && creds.applicationId);
 }
 
 export async function getCustomer(customerId: string) {
