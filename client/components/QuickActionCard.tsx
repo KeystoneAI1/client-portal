@@ -19,6 +19,7 @@ interface QuickActionCardProps {
   color?: string;
   onPress?: () => void;
   testID?: string;
+  disabled?: boolean;
 }
 
 const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
@@ -30,6 +31,7 @@ export function QuickActionCard({
   color,
   onPress,
   testID,
+  disabled,
 }: QuickActionCardProps) {
   const { theme } = useTheme();
   const scale = useSharedValue(1);
@@ -39,7 +41,9 @@ export function QuickActionCard({
   }));
 
   const handlePressIn = () => {
-    scale.value = withSpring(0.95);
+    if (!disabled) {
+      scale.value = withSpring(0.95);
+    }
   };
 
   const handlePressOut = () => {
@@ -47,11 +51,12 @@ export function QuickActionCard({
   };
 
   const handlePress = () => {
+    if (disabled) return;
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     onPress?.();
   };
 
-  const iconColor = color || theme.primary;
+  const iconColor = disabled ? theme.textSecondary : (color || theme.primary);
 
   return (
     <AnimatedPressable
@@ -63,13 +68,14 @@ export function QuickActionCard({
         { backgroundColor: theme.backgroundDefault },
         Shadows.small,
         animatedStyle,
+        disabled && { opacity: 0.5 },
       ]}
       testID={testID}
     >
       <View style={[styles.iconContainer, { backgroundColor: iconColor + "15" }]}>
         <Feather name={icon} size={24} color={iconColor} />
       </View>
-      <ThemedText type="body" style={styles.title}>
+      <ThemedText type="body" style={[styles.title, disabled && { color: theme.textSecondary }]}>
         {title}
       </ThemedText>
       {subtitle ? (

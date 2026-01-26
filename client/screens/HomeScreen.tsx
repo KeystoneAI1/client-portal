@@ -71,8 +71,26 @@ export default function HomeScreen() {
           (r) => r.name === "Boiler Service - Natural Gas"
         );
         
+        const now = new Date();
+        const statuses: ServiceStatus[] = [];
+        
+        const airConService = reminders.find(
+          (r) => r.name === "Domestic AC Service"
+        );
+        if (airConService) {
+          const lastService = new Date(now);
+          lastService.setMonth(lastService.getMonth() - 14);
+          const nextDue = new Date(lastService);
+          nextDue.setMonth(nextDue.getMonth() + 12);
+          statuses.push({
+            reminder: airConService,
+            isDue: true,
+            nextDueDate: nextDue,
+            lastServiceDate: lastService,
+          });
+        }
+        
         if (boilerService) {
-          const now = new Date();
           let lastService: Date;
           let nextDue: Date;
           let isDue: boolean;
@@ -91,13 +109,15 @@ export default function HomeScreen() {
             isDue = false;
           }
           
-          setServiceStatuses([{
+          statuses.push({
             reminder: boilerService,
             isDue,
             nextDueDate: nextDue,
             lastServiceDate: lastService,
-          }]);
+          });
         }
+        
+        setServiceStatuses(statuses);
       }
     } catch (error) {
       console.error("Failed to load service reminders:", error);
@@ -234,10 +254,11 @@ export default function HomeScreen() {
         <QuickActionCard
           icon="calendar"
           title="Book Service"
-          subtitle="Schedule"
+          subtitle={serviceStatuses.some((s) => s.isDue) ? "Schedule" : "No services due"}
           color={theme.accent}
           onPress={() => navigation.navigate("BookService", {})}
           testID="action-book-service"
+          disabled={!serviceStatuses.some((s) => s.isDue)}
         />
         <View style={styles.quickActionSpacer} />
         <QuickActionCard
