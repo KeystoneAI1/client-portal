@@ -16,8 +16,10 @@ import { ThemedText } from "@/components/ThemedText";
 import { SectionHeader } from "@/components/SectionHeader";
 import { QuickActionCard } from "@/components/QuickActionCard";
 import { SummaryCard } from "@/components/SummaryCard";
+import { PropertySelector } from "@/components/PropertySelector";
 import { useTheme } from "@/hooks/useTheme";
 import { useAuth } from "@/hooks/useAuth";
+import { useProperty } from "@/lib/propertyContext";
 import { Spacing } from "@/constants/theme";
 import { storage, ServicePlan, Job, Invoice } from "@/lib/storage";
 import { RootStackParamList } from "@/navigation/RootStackNavigator";
@@ -30,6 +32,7 @@ export default function HomeScreen() {
   const tabBarHeight = useBottomTabBarHeight();
   const { theme } = useTheme();
   const { user } = useAuth();
+  const { selectedProperty, refreshProperties } = useProperty();
   const navigation = useNavigation<NavigationProp>();
 
   const [refreshing, setRefreshing] = useState(false);
@@ -66,7 +69,7 @@ export default function HomeScreen() {
 
   const onRefresh = async () => {
     setRefreshing(true);
-    await loadData();
+    await Promise.all([loadData(), refreshProperties()]);
     setRefreshing(false);
   };
 
@@ -109,6 +112,9 @@ export default function HomeScreen() {
         >
           Here's your account overview
         </ThemedText>
+        <View style={styles.propertySelector}>
+          <PropertySelector />
+        </View>
       </View>
 
       <SectionHeader title="Quick Actions" />
@@ -211,6 +217,9 @@ const styles = StyleSheet.create({
   },
   greetingSubtitle: {
     marginTop: Spacing.xs,
+  },
+  propertySelector: {
+    marginTop: Spacing.md,
   },
   quickActions: {
     flexDirection: "row",

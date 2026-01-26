@@ -128,6 +128,18 @@ export async function getCustomerContacts(customerId: string) {
   });
 }
 
+export async function getWorkAddresses(customerId: string) {
+  return commusoftRequest({
+    endpoint: `/api/v1/customers/${customerId}/workaddresses`,
+  });
+}
+
+export async function getWorkAddress(workAddressId: string) {
+  return commusoftRequest({
+    endpoint: `/api/v1/workaddresses/${workAddressId}`,
+  });
+}
+
 export async function updateContact(contactId: string, data: unknown) {
   return commusoftRequest({
     method: "PUT",
@@ -423,6 +435,32 @@ export function registerCommusoftRoutes(app: any) {
     } catch (error) {
       console.error("Failed to get certificate:", error);
       res.status(500).json({ error: "Failed to fetch certificate" });
+    }
+  });
+
+  app.get("/api/commusoft/customer/:customerId/workaddresses", async (req: Request, res: Response) => {
+    try {
+      if (!isCommusoftConfigured()) {
+        return res.status(503).json({ error: "Commusoft API not configured" });
+      }
+      const data = await getWorkAddresses(req.params.customerId);
+      res.json(data);
+    } catch (error) {
+      console.error("Failed to get work addresses:", error);
+      res.status(500).json({ error: "Failed to fetch work addresses" });
+    }
+  });
+
+  app.get("/api/commusoft/workaddresses/:workAddressId", async (req: Request, res: Response) => {
+    try {
+      if (!isCommusoftConfigured()) {
+        return res.status(503).json({ error: "Commusoft API not configured" });
+      }
+      const data = await getWorkAddress(req.params.workAddressId);
+      res.json(data);
+    } catch (error) {
+      console.error("Failed to get work address:", error);
+      res.status(500).json({ error: "Failed to fetch work address" });
     }
   });
 }
