@@ -18,7 +18,7 @@ export default function AIStackNavigator() {
         name="AIChat"
         component={AIChatScreen}
         options={{
-          headerTitle: "VAI Assistant",
+          headerTitle: "Tech Agent",
         }}
       />
     </Stack.Navigator>

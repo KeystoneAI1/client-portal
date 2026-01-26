@@ -175,7 +175,7 @@ export default function AIChatScreen() {
         resizeMode="contain"
       />
       <ThemedText type="h3" style={styles.welcomeTitle}>
-        Hi, I'm VAI
+        Hi, I'm Tech Agent
       </ThemedText>
       <ThemedText
         type="body"
@@ -243,7 +243,7 @@ export default function AIChatScreen() {
             type="small"
             style={[styles.typingText, { color: theme.textSecondary }]}
           >
-            VAI is typing...
+            Tech Agent is typing...
           </ThemedText>
         </View>
       ) : null}

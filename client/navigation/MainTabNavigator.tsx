@@ -73,7 +73,7 @@ export default function MainTabNavigator() {
         name="AITab"
         component={AIStackNavigator}
         options={{
-          title: "VAI",
+          title: "Tech Agent",
           tabBarIcon: ({ color, size }) => (
             <Feather name="message-circle" size={size} color={color} />
           ),

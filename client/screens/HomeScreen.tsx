@@ -124,7 +124,7 @@ export default function HomeScreen() {
         <View style={styles.quickActionSpacer} />
         <QuickActionCard
           icon="message-circle"
-          title="Ask VAI"
+          title="Ask Tech Agent"
           subtitle="Get help"
           color={theme.primary}
           onPress={() => navigation.navigate("Main", { screen: "AITab" })}
