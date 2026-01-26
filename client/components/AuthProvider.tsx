@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback, ReactNode } from "react";
 import { AuthContext } from "@/hooks/useAuth";
-import { storage, User, initializeMockData } from "@/lib/storage";
+import { storage, User } from "@/lib/storage";
+import { apiRequest } from "@/lib/query-client";
 
 interface AuthProviderProps {
   children: ReactNode;
@@ -21,7 +22,6 @@ export function AuthProvider({ children }: AuthProviderProps) {
         const userData = await storage.getUser();
         if (userData) {
           setUser(userData);
-          await initializeMockData();
         }
       }
     } catch (error) {
@@ -31,26 +31,36 @@ export function AuthProvider({ children }: AuthProviderProps) {
     }
   };
 
-  const login = useCallback(async (email: string, _password: string) => {
+  const login = useCallback(async (accountNumber: string, password: string) => {
     setIsLoading(true);
     try {
-      await new Promise((resolve) => setTimeout(resolve, 1000));
+      const response = await apiRequest("POST", "/api/auth/login", {
+        accountNumber,
+        password,
+      });
 
-      const mockUser: User = {
-        id: "user-1",
-        email: email,
-        name: email.split("@")[0].replace(/[._]/g, " ").replace(/\b\w/g, (c) => c.toUpperCase()),
-        phone: "+44 7700 900123",
-        company: "Home Owner",
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || "Invalid account number or password");
+      }
+
+      const data = await response.json();
+
+      const userData: User = {
+        id: data.customerId,
+        email: data.email || "",
+        name: data.name || `Customer ${accountNumber}`,
+        phone: data.phone || "",
+        company: data.company || "",
+        accountNumber: accountNumber,
       };
 
-      await storage.setAuthToken("mock-token-" + Date.now());
-      await storage.setUser(mockUser);
-      await initializeMockData();
-      setUser(mockUser);
-    } catch (error) {
+      await storage.setAuthToken(data.token);
+      await storage.setUser(userData);
+      setUser(userData);
+    } catch (error: any) {
       console.error("Login failed:", error);
-      throw new Error("Login failed. Please try again.");
+      throw new Error(error.message || "Login failed. Please try again.");
     } finally {
       setIsLoading(false);
     }

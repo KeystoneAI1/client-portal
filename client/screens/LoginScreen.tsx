@@ -17,24 +17,24 @@ export default function LoginScreen() {
   const { theme } = useTheme();
   const { login, isLoading } = useAuth();
 
-  const [email, setEmail] = useState("");
+  const [accountNumber, setAccountNumber] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState("");
 
   const handleLogin = async () => {
-    if (!email.trim() || !password.trim()) {
-      setError("Please enter your email and password");
+    if (!accountNumber.trim() || !password.trim()) {
+      setError("Please enter your account number and password");
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
       return;
     }
 
     try {
       setError("");
-      await login(email, password);
+      await login(accountNumber.trim(), password);
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-    } catch (err) {
-      setError("Invalid credentials. Please try again.");
+    } catch (err: any) {
+      setError(err.message || "Invalid credentials. Please try again.");
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
     }
   };
@@ -89,15 +89,15 @@ export default function LoginScreen() {
 
       <View style={styles.form}>
         <InputField
-          label="Email"
-          placeholder="Enter your email"
-          value={email}
-          onChangeText={setEmail}
-          keyboardType="email-address"
+          label="Account Number"
+          placeholder="Enter your account number"
+          value={accountNumber}
+          onChangeText={setAccountNumber}
+          keyboardType="number-pad"
           autoCapitalize="none"
-          autoComplete="email"
-          leftIcon="mail"
-          testID="input-email"
+          autoComplete="off"
+          leftIcon="hash"
+          testID="input-account-number"
         />
 
         <InputField

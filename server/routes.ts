@@ -1,11 +1,86 @@
 import type { Express, Request, Response } from "express";
 import { createServer, type Server } from "node:http";
-import { registerCommusoftRoutes, isCommusoftConfigured } from "./commusoft";
+import crypto from "node:crypto";
+import { registerCommusoftRoutes, isCommusoftConfigured, getCustomer } from "./commusoft";
 
 const VAI_API_URL = "https://vai.keystoneai.tech";
 
+const customerPasswords: Map<string, string> = new Map();
+
+function generateToken(): string {
+  return crypto.randomBytes(32).toString("hex");
+}
+
+const validTokens: Map<string, { accountNumber: string; customerId: string; expires: number }> = new Map();
+
 export async function registerRoutes(app: Express): Promise<Server> {
   registerCommusoftRoutes(app);
+
+  app.post("/api/auth/login", async (req: Request, res: Response) => {
+    try {
+      const { accountNumber, password } = req.body;
+
+      if (!accountNumber || !password) {
+        return res.status(400).json({ error: "Account number and password are required" });
+      }
+
+      if (!isCommusoftConfigured()) {
+        return res.status(503).json({ error: "Service temporarily unavailable" });
+      }
+
+      try {
+        const customerData: any = await getCustomer(accountNumber);
+
+        if (!customerData) {
+          return res.status(401).json({ error: "Invalid account number or password" });
+        }
+
+        const storedPassword = customerPasswords.get(accountNumber);
+        if (storedPassword && storedPassword !== password) {
+          return res.status(401).json({ error: "Invalid account number or password" });
+        }
+
+        if (!storedPassword) {
+          customerPasswords.set(accountNumber, password);
+        }
+
+        const token = generateToken();
+        validTokens.set(token, {
+          accountNumber,
+          customerId: customerData.id || accountNumber,
+          expires: Date.now() + 24 * 60 * 60 * 1000,
+        });
+
+        const name = customerData.name || 
+                     customerData.companyName || 
+                     (customerData.contacts?.[0]?.name) ||
+                     `Customer ${accountNumber}`;
+
+        const email = customerData.email || 
+                      customerData.contacts?.[0]?.email || 
+                      "";
+
+        const phone = customerData.phone || 
+                      customerData.contacts?.[0]?.phone || 
+                      "";
+
+        return res.json({
+          token,
+          customerId: customerData.id || accountNumber,
+          name,
+          email,
+          phone,
+          company: customerData.companyName || "",
+        });
+      } catch (commusoftError: any) {
+        console.error("Commusoft lookup failed:", commusoftError);
+        return res.status(401).json({ error: "Invalid account number or password" });
+      }
+    } catch (error) {
+      console.error("Login error:", error);
+      return res.status(500).json({ error: "Login failed. Please try again." });
+    }
+  });
 
   app.post("/api/chat", async (req: Request, res: Response) => {
     try {

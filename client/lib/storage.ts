@@ -18,6 +18,7 @@ export interface User {
   name: string;
   phone?: string;
   company?: string;
+  accountNumber?: string;
 }
 
 export interface Contact {
