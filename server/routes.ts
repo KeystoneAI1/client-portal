@@ -51,26 +51,45 @@ export async function registerRoutes(app: Express): Promise<Server> {
           expires: Date.now() + 24 * 60 * 60 * 1000,
         });
 
-        const name = customerData.name || 
-                     customerData.companyName || 
-                     (customerData.contacts?.[0]?.name) ||
-                     `Customer ${accountNumber}`;
+        const customer = customerData.Customer || customerData;
+        
+        let name = "";
+        if (customer.name && customer.surname) {
+          name = `${customer.name} ${customer.surname}`;
+        } else if (customer.name) {
+          name = customer.name;
+        } else if (customer.companyname) {
+          name = customer.companyname;
+        } else {
+          name = `Customer ${accountNumber}`;
+        }
 
-        const email = customerData.email || 
-                      customerData.contacts?.[0]?.email || 
+        const email = customer.emailaddress || 
+                      customer.email || 
                       "";
 
-        const phone = customerData.phone || 
-                      customerData.contacts?.[0]?.phone || 
-                      "";
+        let phone = "";
+        if (customer.mobile) {
+          phone = customer.countrycode ? `+${customer.countrycode} ${customer.mobile}` : customer.mobile;
+        } else if (customer.telephonenumber) {
+          phone = customer.countrycode ? `+${customer.countrycode} ${customer.telephonenumber}` : customer.telephonenumber;
+        }
 
         return res.json({
           token,
-          customerId: customerData.id || accountNumber,
+          customerId: customer.id || accountNumber,
           name,
           email,
           phone,
-          company: customerData.companyName || "",
+          company: customer.companyname || "",
+          address: {
+            line1: customer.addressline1 || "",
+            line2: customer.addressline2 || "",
+            line3: customer.addressline3 || "",
+            town: customer.town || "",
+            county: customer.county || "",
+            postcode: customer.postcode || "",
+          },
         });
       } catch (commusoftError: any) {
         console.error("Commusoft lookup failed:", commusoftError);
