@@ -9,7 +9,7 @@ interface AuthProviderProps {
 
 export function AuthProvider({ children }: AuthProviderProps) {
   const [user, setUser] = useState<User | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
+  const [isLoading, setIsLoading] = useState(true); // Only for initial auth check
 
   useEffect(() => {
     checkAuth();
@@ -67,7 +67,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
   }, []);
 
   const requestCode = useCallback(async (email: string): Promise<RequestCodeResponse> => {
-    setIsLoading(true);
+    // Don't set global isLoading - LoginScreen manages its own loading state
     try {
       const response = await apiRequest("POST", "/api/auth/request-code", {
         email,
@@ -83,8 +83,6 @@ export function AuthProvider({ children }: AuthProviderProps) {
     } catch (error: any) {
       console.error("Request code failed:", error);
       throw new Error(error.message || "Failed to send verification code");
-    } finally {
-      setIsLoading(false);
     }
   }, []);
 
