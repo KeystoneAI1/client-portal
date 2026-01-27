@@ -65,9 +65,12 @@ export default function BookServiceScreen() {
     const appointments: SuggestedAppointment[] = [];
     const now = new Date();
     
-    for (let i = 2; i <= 10; i += 2) {
+    for (let i = 2; i <= 20 && appointments.length < 5; i++) {
       const date = new Date(now);
       date.setDate(date.getDate() + i);
+      
+      const dayOfWeek = date.getDay();
+      if (dayOfWeek === 0 || dayOfWeek === 6) continue;
       
       const morningSlot: SuggestedAppointment = {
         date: date.toISOString().split("T")[0],
