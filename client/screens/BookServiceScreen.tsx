@@ -114,7 +114,41 @@ export default function BookServiceScreen() {
           const preselected = descriptions.find((jd: JobDescription) => jd.id === preselectedId);
           if (preselected) {
             setSelectedJob(preselected);
-            setSuggestedAppointments(generateMockAppointments());
+            
+            const postcode = selectedProperty?.postcode || "";
+            if (postcode) {
+              try {
+                const appointmentsResponse = await fetch(
+                  new URL("/api/commusoft/suggested-appointments", getApiUrl()).toString(),
+                  {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                      postcode: postcode,
+                      jobdescriptionid: preselected.id,
+                      duration: 60,
+                    }),
+                  }
+                );
+                if (appointmentsResponse.ok) {
+                  const appointmentsData = await appointmentsResponse.json();
+                  const slots = appointmentsData.suggestedappointment || appointmentsData.appointments || [];
+                  if (slots.length > 0) {
+                    setSuggestedAppointments(slots.slice(0, 5));
+                  } else {
+                    setSuggestedAppointments(generateMockAppointments());
+                  }
+                } else {
+                  console.log("Suggested appointments API returned error, using fallback");
+                  setSuggestedAppointments(generateMockAppointments());
+                }
+              } catch (aptError) {
+                console.error("Failed to fetch suggested appointments:", aptError);
+                setSuggestedAppointments(generateMockAppointments());
+              }
+            } else {
+              setSuggestedAppointments(generateMockAppointments());
+            }
           }
         }
       }
