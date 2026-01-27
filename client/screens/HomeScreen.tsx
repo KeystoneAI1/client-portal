@@ -151,6 +151,7 @@ export default function HomeScreen() {
           if (ongoingJobs.length > 0) {
             const nextJob = ongoingJobs[0];
             console.log("[HomeScreen] Next ongoing job:", nextJob.description);
+            console.log("[HomeScreen] Full job data:", JSON.stringify(nextJob).substring(0, 1000));
             setUpcomingJob({
               id: nextJob.id,
               description: nextJob.description || "Scheduled Service",
