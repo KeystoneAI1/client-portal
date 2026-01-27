@@ -1,5 +1,5 @@
 import React, { useCallback, useState } from "react";
-import { View, StyleSheet, ScrollView, Image, Pressable } from "react-native";
+import { View, StyleSheet, ScrollView, Image, Pressable, RefreshControl } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useHeaderHeight } from "@react-navigation/elements";
 import { useBottomTabBarHeight } from "@react-navigation/bottom-tabs";
@@ -16,6 +16,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { Spacing, BorderRadius, Shadows } from "@/constants/theme";
 import { storage, Contact, Appliance } from "@/lib/storage";
 import { RootStackParamList } from "@/navigation/RootStackNavigator";
+import { getApiUrl } from "@/lib/queryClient";
 
 type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
 
@@ -29,15 +30,74 @@ export default function AccountScreen() {
 
   const [contacts, setContacts] = useState<Contact[]>([]);
   const [appliances, setAppliances] = useState<Appliance[]>([]);
+  const [refreshing, setRefreshing] = useState(false);
 
   const loadData = useCallback(async () => {
-    const [contactsData, appliancesData] = await Promise.all([
-      storage.getContacts(),
-      storage.getAppliances(),
-    ]);
-    setContacts(contactsData);
-    setAppliances(appliancesData);
-  }, []);
+    const customerId = user?.accountNumber || user?.id;
+    
+    if (customerId) {
+      try {
+        const [contactsResponse, appliancesResponse] = await Promise.all([
+          fetch(new URL(`/api/commusoft/customer/${customerId}/contacts`, getApiUrl()).toString()),
+          fetch(new URL(`/api/commusoft/customer/${customerId}/appliances`, getApiUrl()).toString()),
+        ]);
+        
+        if (contactsResponse.ok) {
+          const contactsData = await contactsResponse.json();
+          const apiContacts = contactsData.Contacts || contactsData.contacts || [];
+          console.log("[AccountScreen] Contacts from API:", apiContacts.length);
+          const mappedContacts: Contact[] = apiContacts.map((c: any) => ({
+            id: String(c.id || c.contactid),
+            name: c.name || `${c.firstname || ""} ${c.surname || ""}`.trim() || "Contact",
+            role: c.type || c.position || "Contact",
+            phone: c.telephone || c.mobile || c.phone || "",
+            email: c.email || "",
+            isPrimary: c.isprimary || c.isPrimary || false,
+          }));
+          setContacts(mappedContacts);
+          await storage.setContacts(mappedContacts);
+        }
+        
+        if (appliancesResponse.ok) {
+          const appliancesData = await appliancesResponse.json();
+          const apiAppliances = appliancesData.Appliances || appliancesData.appliances || appliancesData.Assets || appliancesData.assets || [];
+          console.log("[AccountScreen] Appliances/Assets from API:", apiAppliances.length);
+          const mappedAppliances: Appliance[] = apiAppliances.map((a: any) => ({
+            id: String(a.id || a.applianceid || a.assetid),
+            name: a.name || a.description || a.type || "Appliance",
+            type: (a.type || a.category || "other").toLowerCase() as Appliance["type"],
+            model: a.model || a.make || "",
+            serialNumber: a.serialnumber || a.serial || "",
+            installDate: a.installdate || a.installeddate || "",
+            location: a.location || a.room || "",
+          }));
+          setAppliances(mappedAppliances);
+          await storage.setAppliances(mappedAppliances);
+        }
+      } catch (error) {
+        console.error("Failed to load data from API:", error);
+        const [contactsData, appliancesData] = await Promise.all([
+          storage.getContacts(),
+          storage.getAppliances(),
+        ]);
+        setContacts(contactsData);
+        setAppliances(appliancesData);
+      }
+    } else {
+      const [contactsData, appliancesData] = await Promise.all([
+        storage.getContacts(),
+        storage.getAppliances(),
+      ]);
+      setContacts(contactsData);
+      setAppliances(appliancesData);
+    }
+  }, [user]);
+
+  const onRefresh = async () => {
+    setRefreshing(true);
+    await loadData();
+    setRefreshing(false);
+  };
 
   useFocusEffect(
     useCallback(() => {
@@ -69,6 +129,9 @@ export default function AccountScreen() {
         paddingHorizontal: Spacing.lg,
       }}
       scrollIndicatorInsets={{ bottom: insets.bottom }}
+      refreshControl={
+        <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
+      }
     >
       <Pressable
         style={[

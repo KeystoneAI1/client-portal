@@ -12,6 +12,7 @@ import { ListItem } from "@/components/ListItem";
 import { StatusBadge } from "@/components/StatusBadge";
 import { EmptyState } from "@/components/EmptyState";
 import { useTheme } from "@/hooks/useTheme";
+import { useAuth } from "@/hooks/useAuth";
 import { Spacing, BorderRadius } from "@/constants/theme";
 import {
   storage,
@@ -21,6 +22,7 @@ import {
   Certificate,
 } from "@/lib/storage";
 import { RootStackParamList } from "@/navigation/RootStackNavigator";
+import { getApiUrl } from "@/lib/queryClient";
 
 type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
 
@@ -35,18 +37,81 @@ export default function ServicesScreen() {
   const headerHeight = useHeaderHeight();
   const tabBarHeight = useBottomTabBarHeight();
   const { theme } = useTheme();
+  const { user } = useAuth();
   const navigation = useNavigation<NavigationProp>();
 
   const [refreshing, setRefreshing] = useState(false);
   const [sections, setSections] = useState<SectionData[]>([]);
 
   const loadData = useCallback(async () => {
-    const [plans, jobs, invoices, certificates] = await Promise.all([
-      storage.getServicePlans(),
-      storage.getJobs(),
-      storage.getInvoices(),
-      storage.getCertificates(),
-    ]);
+    const customerId = user?.accountNumber || user?.id;
+    let jobs: Job[] = [];
+    let plans: ServicePlan[] = [];
+    let invoices: Invoice[] = [];
+    let certificates: Certificate[] = [];
+    
+    if (customerId) {
+      try {
+        const jobsResponse = await fetch(
+          new URL(`/api/commusoft/customer/${customerId}/jobs`, getApiUrl()).toString()
+        );
+        
+        if (jobsResponse.ok) {
+          const jobsData = await jobsResponse.json();
+          const apiJobs = jobsData.Jobs || jobsData.jobs || [];
+          console.log("[HistoryScreen] Jobs from API:", apiJobs.length);
+          
+          jobs = apiJobs.map((j: any) => ({
+            id: String(j.id || j.jobid),
+            description: j.description || j.jobdescription || "Service",
+            scheduledDate: j.completedon || j.startdatetime || j.createddate || "",
+            completedDate: j.completedon || "",
+            status: (j.status || "completed").toLowerCase() as Job["status"],
+            engineerName: j.engineername || "",
+            invoiceId: j.invoiceid ? String(j.invoiceid) : undefined,
+            certificateId: j.certificateid ? String(j.certificateid) : undefined,
+          }));
+          await storage.setJobs(jobs);
+        }
+        
+        const customerResponse = await fetch(
+          new URL(`/api/commusoft/customer/${customerId}`, getApiUrl()).toString()
+        );
+        
+        if (customerResponse.ok) {
+          const customerData = await customerResponse.json();
+          const customer = customerData.Customer || customerData.customer || customerData;
+          const apiPlans = customer.servicePlans || customer.serviceplans || [];
+          
+          plans = apiPlans.map((p: any) => ({
+            id: String(p.id || p.servicePlanId),
+            name: p.description || p.name || "Service Plan",
+            description: p.description || "",
+            startDate: p.startdate || "",
+            endDate: p.expiredate || p.enddate || "",
+            status: p.isServicePlanDisable ? "expired" : "active",
+            coverage: [],
+            applianceIds: [],
+          }));
+          await storage.setServicePlans(plans);
+        }
+      } catch (error) {
+        console.error("Failed to load data from API:", error);
+        [plans, jobs, invoices, certificates] = await Promise.all([
+          storage.getServicePlans(),
+          storage.getJobs(),
+          storage.getInvoices(),
+          storage.getCertificates(),
+        ]);
+      }
+    } else {
+      [plans, jobs, invoices, certificates] = await Promise.all([
+        storage.getServicePlans(),
+        storage.getJobs(),
+        storage.getInvoices(),
+        storage.getCertificates(),
+      ]);
+    }
 
     const newSections: SectionData[] = [
       { title: "Service Plans", data: plans, type: "plans" },
@@ -56,7 +121,7 @@ export default function ServicesScreen() {
     ];
 
     setSections(newSections);
-  }, []);
+  }, [user]);
 
   useFocusEffect(
     useCallback(() => {
