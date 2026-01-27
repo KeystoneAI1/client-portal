@@ -87,7 +87,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
   }, []);
 
   const verifyCode = useCallback(async (email: string, code: string) => {
-    setIsLoading(true);
+    // Don't set global isLoading - LoginScreen manages its own loading state
     try {
       const response = await apiRequest("POST", "/api/auth/verify-code", {
         email,
@@ -112,12 +112,10 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
       await storage.setAuthToken(data.token);
       await storage.setUser(userData);
-      setUser(userData);
+      setUser(userData); // This triggers navigation to authenticated screens
     } catch (error: any) {
       console.error("Verify code failed:", error);
       throw new Error(error.message || "Verification failed. Please try again.");
-    } finally {
-      setIsLoading(false);
     }
   }, []);
 
