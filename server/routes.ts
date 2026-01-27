@@ -134,11 +134,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       try {
+        console.log("[Auth] Looking up customer by email:", email);
         const searchResult: any = await searchCustomersByEmail(email);
+        console.log("[Auth] Search result:", JSON.stringify(searchResult).substring(0, 500));
         
         let customer: any = null;
-        if (searchResult?.customers && searchResult.customers.length > 0) {
-          customer = searchResult.customers[0];
+        const customers = searchResult?.Customers || searchResult?.customers || [];
+        
+        if (customers.length > 0) {
+          // Find exact email match (case-insensitive)
+          customer = customers.find((c: any) => 
+            c.emailaddress?.toLowerCase() === email.toLowerCase()
+          );
+          // Fallback to first result if no exact match
+          if (!customer) {
+            customer = customers[0];
+          }
         } else if (searchResult?.Customer) {
           customer = searchResult.Customer;
         } else if (searchResult?.id) {
@@ -146,8 +157,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
 
         if (!customer) {
+          console.log("[Auth] No customer found in search result");
           return res.status(404).json({ error: "No account found with this email address" });
         }
+        console.log("[Auth] Found customer:", customer.id || customer.customerid);
 
         const customerId = customer.id || customer.customerid;
         

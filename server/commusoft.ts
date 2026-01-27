@@ -78,7 +78,8 @@ async function commusoftRequest<T>({
   method = "GET",
   endpoint,
   body,
-}: CommusoftRequestOptions): Promise<T> {
+  timeoutMs = 30000,
+}: CommusoftRequestOptions & { timeoutMs?: number }): Promise<T> {
   const token = await getCommusoftToken();
 
   const separator = endpoint.includes("?") ? "&" : "?";
@@ -90,25 +91,39 @@ async function commusoftRequest<T>({
 
   console.log(`[CommusoftClient] ${method} ${endpoint}`);
 
-  const response = await fetch(url, {
-    method,
-    headers,
-    body: body ? JSON.stringify(body) : undefined,
-  });
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
-  if (!response.ok) {
-    const errorText = await response.text();
-    console.error(`[CommusoftClient] API error: ${response.status} - ${errorText}`);
+  try {
+    const response = await fetch(url, {
+      method,
+      headers,
+      body: body ? JSON.stringify(body) : undefined,
+      signal: controller.signal,
+    });
+    clearTimeout(timeoutId);
 
-    if (response.status === 401 || response.status === 403) {
-      cachedToken = null;
-      tokenExpiry = 0;
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error(`[CommusoftClient] API error: ${response.status} - ${errorText}`);
+
+      if (response.status === 401 || response.status === 403) {
+        cachedToken = null;
+        tokenExpiry = 0;
+      }
+
+      throw new Error(`Commusoft API error: ${response.status}`);
     }
 
-    throw new Error(`Commusoft API error: ${response.status}`);
+    return response.json();
+  } catch (error: any) {
+    clearTimeout(timeoutId);
+    if (error.name === 'AbortError') {
+      console.error(`[CommusoftClient] Request timed out: ${endpoint}`);
+      throw new Error(`Request timed out: ${endpoint}`);
+    }
+    throw error;
   }
-
-  return response.json();
 }
 
 export function isCommusoftConfigured(): boolean {
@@ -261,8 +276,10 @@ export async function testConnection(): Promise<{ success: boolean; message: str
 }
 
 export async function searchCustomersByEmail(email: string): Promise<any> {
+  console.log(`[CommusoftClient] Searching for customer by email: ${email}`);
   return commusoftRequest({
     endpoint: `/api/v1/customers?emailaddress=${encodeURIComponent(email)}`,
+    timeoutMs: 60000,
   });
 }
 
