@@ -63,9 +63,9 @@ export default function MainTabNavigator() {
         name="ServicesTab"
         component={ServicesStackNavigator}
         options={{
-          title: "Services",
+          title: "History",
           tabBarIcon: ({ color, size }) => (
-            <Feather name="briefcase" size={size} color={color} />
+            <Feather name="clock" size={size} color={color} />
           ),
         }}
       />
