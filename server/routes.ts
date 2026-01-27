@@ -1,7 +1,8 @@
 import type { Express, Request, Response } from "express";
 import { createServer, type Server } from "node:http";
 import crypto from "node:crypto";
-import { registerCommusoftRoutes, isCommusoftConfigured, getCustomer } from "./commusoft";
+import { registerCommusoftRoutes, isCommusoftConfigured, getCustomer, getCustomerContacts, searchCustomersByEmail } from "./commusoft";
+import { sendVerificationCode, isTwilioConfigured } from "./sms";
 
 const VAI_API_URL = "https://vai.keystoneai.tech";
 
@@ -10,6 +11,21 @@ const customerPasswords: Map<string, string> = new Map();
 function generateToken(): string {
   return crypto.randomBytes(32).toString("hex");
 }
+
+function generateVerificationCode(): string {
+  return Math.floor(100000 + Math.random() * 900000).toString();
+}
+
+interface PendingVerification {
+  customerId: string;
+  customerName: string;
+  email: string;
+  phone: string;
+  code: string;
+  expires: number;
+}
+
+const pendingVerifications: Map<string, PendingVerification> = new Map();
 
 const validTokens: Map<string, { accountNumber: string; customerId: string; expires: number }> = new Map();
 
@@ -98,6 +114,179 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("Login error:", error);
       return res.status(500).json({ error: "Login failed. Please try again." });
+    }
+  });
+
+  app.post("/api/auth/request-code", async (req: Request, res: Response) => {
+    try {
+      const { email } = req.body;
+
+      if (!email) {
+        return res.status(400).json({ error: "Email address is required" });
+      }
+
+      if (!isCommusoftConfigured()) {
+        return res.status(503).json({ error: "Service temporarily unavailable" });
+      }
+
+      if (!isTwilioConfigured()) {
+        return res.status(503).json({ error: "SMS service not configured" });
+      }
+
+      try {
+        const searchResult: any = await searchCustomersByEmail(email);
+        
+        let customer: any = null;
+        if (searchResult?.customers && searchResult.customers.length > 0) {
+          customer = searchResult.customers[0];
+        } else if (searchResult?.Customer) {
+          customer = searchResult.Customer;
+        } else if (searchResult?.id) {
+          customer = searchResult;
+        }
+
+        if (!customer) {
+          return res.status(404).json({ error: "No account found with this email address" });
+        }
+
+        const customerId = customer.id || customer.customerid;
+        
+        let contactsResult: any;
+        try {
+          contactsResult = await getCustomerContacts(customerId);
+        } catch (e) {
+          console.log("Failed to get contacts, using customer data");
+        }
+
+        let phone = "";
+        const contacts = contactsResult?.contact || contactsResult?.contacts || [];
+        
+        if (contacts.length > 0) {
+          const primaryContact = contacts.find((c: any) => c.isprimary === "1" || c.isprimary === 1) || contacts[0];
+          if (primaryContact.mobile) {
+            phone = primaryContact.countrycode ? `+${primaryContact.countrycode}${primaryContact.mobile}` : primaryContact.mobile;
+          } else if (primaryContact.telephonenumber) {
+            phone = primaryContact.countrycode ? `+${primaryContact.countrycode}${primaryContact.telephonenumber}` : primaryContact.telephonenumber;
+          }
+        }
+        
+        if (!phone && customer.mobile) {
+          phone = customer.countrycode ? `+${customer.countrycode}${customer.mobile}` : customer.mobile;
+        } else if (!phone && customer.telephonenumber) {
+          phone = customer.countrycode ? `+${customer.countrycode}${customer.telephonenumber}` : customer.telephonenumber;
+        }
+
+        if (!phone) {
+          return res.status(400).json({ error: "No mobile phone number on file for this account" });
+        }
+
+        let customerName = "";
+        if (customer.name && customer.surname) {
+          customerName = `${customer.name} ${customer.surname}`;
+        } else if (customer.name) {
+          customerName = customer.name;
+        } else if (customer.companyname) {
+          customerName = customer.companyname;
+        }
+
+        const code = generateVerificationCode();
+        const maskedPhone = phone.slice(0, -4).replace(/\d/g, "*") + phone.slice(-4);
+
+        pendingVerifications.set(email.toLowerCase(), {
+          customerId,
+          customerName,
+          email: email.toLowerCase(),
+          phone,
+          code,
+          expires: Date.now() + 10 * 60 * 1000,
+        });
+
+        const smsSent = await sendVerificationCode(phone, code);
+        
+        if (!smsSent) {
+          pendingVerifications.delete(email.toLowerCase());
+          return res.status(500).json({ error: "Failed to send verification code" });
+        }
+
+        return res.json({
+          success: true,
+          maskedPhone,
+          message: `Verification code sent to ${maskedPhone}`,
+        });
+      } catch (commusoftError: any) {
+        console.error("Customer lookup failed:", commusoftError);
+        return res.status(404).json({ error: "No account found with this email address" });
+      }
+    } catch (error) {
+      console.error("Request code error:", error);
+      return res.status(500).json({ error: "Failed to send verification code" });
+    }
+  });
+
+  app.post("/api/auth/verify-code", async (req: Request, res: Response) => {
+    try {
+      const { email, code } = req.body;
+
+      if (!email || !code) {
+        return res.status(400).json({ error: "Email and verification code are required" });
+      }
+
+      const pending = pendingVerifications.get(email.toLowerCase());
+
+      if (!pending) {
+        return res.status(400).json({ error: "No pending verification found. Please request a new code." });
+      }
+
+      if (Date.now() > pending.expires) {
+        pendingVerifications.delete(email.toLowerCase());
+        return res.status(400).json({ error: "Verification code has expired. Please request a new code." });
+      }
+
+      if (pending.code !== code) {
+        return res.status(401).json({ error: "Invalid verification code" });
+      }
+
+      pendingVerifications.delete(email.toLowerCase());
+
+      const token = generateToken();
+      validTokens.set(token, {
+        accountNumber: pending.customerId,
+        customerId: pending.customerId,
+        expires: Date.now() + 24 * 60 * 60 * 1000,
+      });
+
+      try {
+        const customerData: any = await getCustomer(pending.customerId);
+        const customer = customerData?.Customer || customerData;
+
+        return res.json({
+          token,
+          customerId: pending.customerId,
+          name: pending.customerName,
+          email: pending.email,
+          phone: pending.phone,
+          company: customer?.companyname || "",
+          address: customer ? {
+            line1: customer.addressline1 || "",
+            line2: customer.addressline2 || "",
+            line3: customer.addressline3 || "",
+            town: customer.town || "",
+            county: customer.county || "",
+            postcode: customer.postcode || "",
+          } : {},
+        });
+      } catch (e) {
+        return res.json({
+          token,
+          customerId: pending.customerId,
+          name: pending.customerName,
+          email: pending.email,
+          phone: pending.phone,
+        });
+      }
+    } catch (error) {
+      console.error("Verify code error:", error);
+      return res.status(500).json({ error: "Verification failed. Please try again." });
     }
   });
 

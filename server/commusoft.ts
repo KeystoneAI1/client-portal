@@ -260,6 +260,12 @@ export async function testConnection(): Promise<{ success: boolean; message: str
   }
 }
 
+export async function searchCustomersByEmail(email: string): Promise<any> {
+  return commusoftRequest({
+    endpoint: `/api/v1/customers?emailaddress=${encodeURIComponent(email)}`,
+  });
+}
+
 export function registerCommusoftRoutes(app: any) {
   app.get("/api/commusoft/status", async (_req: Request, res: Response) => {
     const configured = isCommusoftConfigured();
