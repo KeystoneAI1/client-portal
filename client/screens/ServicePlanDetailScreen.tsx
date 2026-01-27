@@ -1,9 +1,11 @@
 import React, { useState, useEffect } from "react";
-import { View, StyleSheet, ScrollView } from "react-native";
+import { View, StyleSheet, ScrollView, Pressable } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useHeaderHeight } from "@react-navigation/elements";
 import { useRoute, RouteProp } from "@react-navigation/native";
 import { Feather } from "@expo/vector-icons";
+import * as WebBrowser from "expo-web-browser";
+import * as Haptics from "expo-haptics";
 
 import { ThemedText } from "@/components/ThemedText";
 import { StatusBadge } from "@/components/StatusBadge";
@@ -12,6 +14,8 @@ import { useTheme } from "@/hooks/useTheme";
 import { Spacing, BorderRadius, Shadows } from "@/constants/theme";
 import { storage, ServicePlan, Appliance } from "@/lib/storage";
 import { RootStackParamList } from "@/navigation/RootStackNavigator";
+
+const CARE_PLAN_PDF_URL = "https://www.aquila-plumbing.com/wp-content/uploads/2026/01/Aquila_Care-_Plan_T_and_C.pdf";
 
 type RouteProps = RouteProp<RootStackParamList, "ServicePlanDetail">;
 
@@ -71,6 +75,11 @@ export default function ServicePlanDetailScreen() {
       default:
         return "box";
     }
+  };
+
+  const openTermsAndConditions = async () => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    await WebBrowser.openBrowserAsync(CARE_PLAN_PDF_URL);
   };
 
   if (isLoading) {
@@ -191,6 +200,36 @@ export default function ServicePlanDetailScreen() {
           ))}
         </View>
       ) : null}
+
+      <View style={styles.section}>
+        <Pressable
+          onPress={openTermsAndConditions}
+          style={[
+            styles.termsButton,
+            { backgroundColor: theme.backgroundDefault },
+          ]}
+        >
+          <View style={styles.termsButtonContent}>
+            <View
+              style={[
+                styles.termsIcon,
+                { backgroundColor: theme.primary + "15" },
+              ]}
+            >
+              <Feather name="file-text" size={20} color={theme.primary} />
+            </View>
+            <View style={styles.termsTextContainer}>
+              <ThemedText type="body" style={styles.termsTitle}>
+                Terms & Conditions
+              </ThemedText>
+              <ThemedText type="small" style={{ color: theme.textSecondary }}>
+                View full care plan details
+              </ThemedText>
+            </View>
+          </View>
+          <Feather name="external-link" size={18} color={theme.textSecondary} />
+        </Pressable>
+      </View>
     </ScrollView>
   );
 }
@@ -258,6 +297,32 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   applianceName: {
+    fontWeight: "500",
+  },
+  termsButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    padding: Spacing.lg,
+    borderRadius: BorderRadius.md,
+  },
+  termsButtonContent: {
+    flexDirection: "row",
+    alignItems: "center",
+    flex: 1,
+  },
+  termsIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: BorderRadius.sm,
+    alignItems: "center",
+    justifyContent: "center",
+    marginRight: Spacing.md,
+  },
+  termsTextContainer: {
+    flex: 1,
+  },
+  termsTitle: {
     fontWeight: "500",
   },
 });
