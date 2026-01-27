@@ -17,17 +17,15 @@ type LoginStep = "email" | "code";
 export default function LoginScreen() {
   const insets = useSafeAreaInsets();
   const { theme } = useTheme();
-  const { requestCode, verifyCode, isLoading: authLoading } = useAuth();
+  const { requestCode, verifyCode } = useAuth();
 
   const [step, setStep] = useState<LoginStep>("email");
   const [email, setEmail] = useState("");
   const [code, setCode] = useState("");
   const [maskedPhone, setMaskedPhone] = useState("");
   const [error, setError] = useState("");
-  const [localLoading, setLocalLoading] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
   const codeInputRef = useRef<RNTextInput>(null);
-  
-  const isLoading = authLoading || localLoading;
 
   const handleRequestCode = async () => {
     if (!email.trim()) {
@@ -45,17 +43,18 @@ export default function LoginScreen() {
 
     try {
       setError("");
-      setLocalLoading(true);
+      setIsLoading(true);
       const response = await requestCode(email.trim());
-      setMaskedPhone(response.maskedPhone);
+      // Update step FIRST before any other state changes to prevent race condition
       setStep("code");
+      setMaskedPhone(response.maskedPhone);
+      setIsLoading(false);
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       setTimeout(() => codeInputRef.current?.focus(), 300);
     } catch (err: any) {
+      setIsLoading(false);
       setError(err.message || "Failed to send verification code");
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
-    } finally {
-      setLocalLoading(false);
     }
   };
 
@@ -74,9 +73,11 @@ export default function LoginScreen() {
 
     try {
       setError("");
+      setIsLoading(true);
       await verifyCode(email.trim(), code.trim());
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     } catch (err: any) {
+      setIsLoading(false);
       setError(err.message || "Invalid verification code");
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
     }
@@ -85,11 +86,14 @@ export default function LoginScreen() {
   const handleResendCode = async () => {
     setCode("");
     setError("");
+    setIsLoading(true);
     try {
       const response = await requestCode(email.trim());
       setMaskedPhone(response.maskedPhone);
+      setIsLoading(false);
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     } catch (err: any) {
+      setIsLoading(false);
       setError(err.message || "Failed to resend code");
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
     }
