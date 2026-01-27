@@ -353,7 +353,13 @@ export default function HomeScreen() {
           subtitle={`Valid until ${formatDate(activePlan.endDate)}`}
           status="active"
           onPress={() =>
-            navigation.navigate("ServicePlanDetail", { planId: activePlan.id })
+            navigation.navigate("ServicePlanDetail", { 
+              planId: activePlan.id,
+              planName: activePlan.name,
+              planStatus: activePlan.status,
+              planStartDate: activePlan.startDate,
+              planEndDate: activePlan.endDate
+            })
           }
           testID="card-active-plan"
         />

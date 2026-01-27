@@ -1,18 +1,17 @@
-import React, { useState, useEffect } from "react";
-import { View, StyleSheet, ScrollView, Pressable } from "react-native";
+import React, { useState } from "react";
+import { View, StyleSheet, Pressable, Platform, ActivityIndicator } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useHeaderHeight } from "@react-navigation/elements";
 import { useRoute, RouteProp } from "@react-navigation/native";
 import { Feather } from "@expo/vector-icons";
 import * as WebBrowser from "expo-web-browser";
 import * as Haptics from "expo-haptics";
+import WebView from "react-native-webview";
 
 import { ThemedText } from "@/components/ThemedText";
 import { StatusBadge } from "@/components/StatusBadge";
-import { LoadingSpinner } from "@/components/LoadingSpinner";
 import { useTheme } from "@/hooks/useTheme";
 import { Spacing, BorderRadius, Shadows } from "@/constants/theme";
-import { storage, ServicePlan, Appliance } from "@/lib/storage";
 import { RootStackParamList } from "@/navigation/RootStackNavigator";
 
 const CARE_PLAN_PDF_URL = "https://www.aquila-plumbing.com/wp-content/uploads/2026/01/Aquila_Care-_Plan_T_and_C.pdf";
@@ -24,213 +23,92 @@ export default function ServicePlanDetailScreen() {
   const headerHeight = useHeaderHeight();
   const { theme } = useTheme();
   const route = useRoute<RouteProps>();
-  const { planId } = route.params;
-
-  const [plan, setPlan] = useState<ServicePlan | null>(null);
-  const [appliances, setAppliances] = useState<Appliance[]>([]);
+  const { planName, planStatus, planStartDate, planEndDate } = route.params;
   const [isLoading, setIsLoading] = useState(true);
 
-  useEffect(() => {
-    loadData();
-  }, [planId]);
-
-  const loadData = async () => {
-    const [plans, allAppliances] = await Promise.all([
-      storage.getServicePlans(),
-      storage.getAppliances(),
-    ]);
-
-    const foundPlan = plans.find((p) => p.id === planId);
-    setPlan(foundPlan || null);
-
-    if (foundPlan) {
-      const coveredAppliances = allAppliances.filter((a) =>
-        foundPlan.applianceIds.includes(a.id),
-      );
-      setAppliances(coveredAppliances);
-    }
-
-    setIsLoading(false);
-  };
-
-  const formatDate = (dateStr: string) => {
+  const formatDate = (dateStr: string | undefined) => {
+    if (!dateStr) return "";
     const date = new Date(dateStr);
     return date.toLocaleDateString("en-GB", {
       day: "numeric",
-      month: "long",
+      month: "short",
       year: "numeric",
     });
   };
 
-  const getApplianceIcon = (type: Appliance["type"]): keyof typeof Feather.glyphMap => {
-    switch (type) {
-      case "boiler":
-        return "thermometer";
-      case "heating":
-        return "sun";
-      case "electrical":
-        return "zap";
-      case "plumbing":
-        return "droplet";
-      default:
-        return "box";
-    }
-  };
-
-  const openTermsAndConditions = async () => {
+  const openInBrowser = async () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     await WebBrowser.openBrowserAsync(CARE_PLAN_PDF_URL);
   };
 
-  if (isLoading) {
-    return (
-      <View
-        style={[
-          styles.container,
-          { backgroundColor: theme.backgroundRoot, paddingTop: headerHeight },
-        ]}
-      >
-        <LoadingSpinner />
-      </View>
-    );
-  }
+  const mapStatus = (status: string | undefined): "active" | "expired" | "pending" => {
+    if (!status) return "active";
+    if (status === "active" || status === "expired" || status === "pending") {
+      return status;
+    }
+    return "active";
+  };
 
-  if (!plan) {
-    return (
-      <View
-        style={[
-          styles.container,
-          styles.centered,
-          { backgroundColor: theme.backgroundRoot, paddingTop: headerHeight },
-        ]}
-      >
-        <ThemedText type="body" style={{ color: theme.textSecondary }}>
-          Plan not found
-        </ThemedText>
-      </View>
-    );
-  }
+  const pdfViewerUrl = Platform.OS === "web" 
+    ? CARE_PLAN_PDF_URL 
+    : `https://docs.google.com/viewer?embedded=true&url=${encodeURIComponent(CARE_PLAN_PDF_URL)}`;
 
   return (
-    <ScrollView
-      style={[styles.container, { backgroundColor: theme.backgroundRoot }]}
-      contentContainerStyle={{
-        paddingTop: headerHeight + Spacing.xl,
-        paddingBottom: insets.bottom + Spacing.xl,
-        paddingHorizontal: Spacing.lg,
-      }}
-    >
-      <View
-        style={[
-          styles.header,
-          { backgroundColor: theme.backgroundDefault },
-          Shadows.small,
-        ]}
-      >
-        <View style={styles.headerTop}>
-          <View
-            style={[styles.iconContainer, { backgroundColor: theme.primary + "15" }]}
-          >
+    <View style={[styles.container, { backgroundColor: theme.backgroundRoot }]}>
+      <View style={[styles.header, { paddingTop: headerHeight + Spacing.md, backgroundColor: theme.backgroundDefault }]}>
+        <View style={styles.headerContent}>
+          <View style={[styles.iconContainer, { backgroundColor: theme.primary + "15" }]}>
             <Feather name="shield" size={24} color={theme.primary} />
           </View>
-          <StatusBadge status={plan.status} size="medium" />
+          <View style={styles.headerText}>
+            <ThemedText type="body" style={styles.planName} numberOfLines={2}>
+              {planName || "Care Plan"}
+            </ThemedText>
+            {planStartDate && planEndDate ? (
+              <ThemedText type="small" style={{ color: theme.textSecondary }}>
+                {formatDate(planStartDate)} - {formatDate(planEndDate)}
+              </ThemedText>
+            ) : null}
+          </View>
+          {planStatus ? (
+            <StatusBadge status={mapStatus(planStatus)} size="small" />
+          ) : null}
         </View>
-        <ThemedText type="h2" style={styles.planName}>
-          {plan.name}
-        </ThemedText>
-        <ThemedText
-          type="body"
-          style={[styles.planDates, { color: theme.textSecondary }]}
-        >
-          {formatDate(plan.startDate)} - {formatDate(plan.endDate)}
-        </ThemedText>
       </View>
 
-      <View style={styles.section}>
-        <ThemedText type="h4" style={styles.sectionTitle}>
-          Coverage Includes
-        </ThemedText>
-        {plan.coverage.map((item, index) => (
-          <View key={index} style={styles.coverageItem}>
-            <Feather name="check-circle" size={18} color={theme.success} />
-            <ThemedText type="body" style={styles.coverageText}>
-              {item}
+      <View style={styles.pdfContainer}>
+        {isLoading ? (
+          <View style={styles.loadingContainer}>
+            <ActivityIndicator size="large" color={theme.primary} />
+            <ThemedText type="body" style={[styles.loadingText, { color: theme.textSecondary }]}>
+              Loading Terms & Conditions...
             </ThemedText>
           </View>
-        ))}
+        ) : null}
+        <WebView
+          source={{ uri: pdfViewerUrl }}
+          style={[styles.webview, isLoading ? styles.hidden : null]}
+          onLoadEnd={() => setIsLoading(false)}
+          onError={() => setIsLoading(false)}
+          startInLoadingState={false}
+          javaScriptEnabled={true}
+          domStorageEnabled={true}
+          scalesPageToFit={true}
+        />
       </View>
 
-      {appliances.length > 0 ? (
-        <View style={styles.section}>
-          <ThemedText type="h4" style={styles.sectionTitle}>
-            Covered Appliances
-          </ThemedText>
-          {appliances.map((appliance) => (
-            <View
-              key={appliance.id}
-              style={[
-                styles.applianceCard,
-                { backgroundColor: theme.backgroundDefault },
-              ]}
-            >
-              <View
-                style={[
-                  styles.applianceIcon,
-                  { backgroundColor: theme.primary + "15" },
-                ]}
-              >
-                <Feather
-                  name={getApplianceIcon(appliance.type)}
-                  size={20}
-                  color={theme.primary}
-                />
-              </View>
-              <View style={styles.applianceInfo}>
-                <ThemedText type="body" style={styles.applianceName}>
-                  {appliance.name}
-                </ThemedText>
-                <ThemedText
-                  type="small"
-                  style={{ color: theme.textSecondary }}
-                >
-                  {appliance.model || appliance.type}
-                </ThemedText>
-              </View>
-            </View>
-          ))}
-        </View>
-      ) : null}
-
-      <View style={styles.section}>
+      <View style={[styles.footer, { paddingBottom: insets.bottom + Spacing.md, backgroundColor: theme.backgroundDefault }]}>
         <Pressable
-          onPress={openTermsAndConditions}
-          style={[
-            styles.termsButton,
-            { backgroundColor: theme.backgroundDefault },
-          ]}
+          onPress={openInBrowser}
+          style={[styles.openButton, { backgroundColor: theme.primary }]}
         >
-          <View style={styles.termsButtonContent}>
-            <View
-              style={[
-                styles.termsIcon,
-                { backgroundColor: theme.primary + "15" },
-              ]}
-            >
-              <Feather name="file-text" size={20} color={theme.primary} />
-            </View>
-            <View style={styles.termsTextContainer}>
-              <ThemedText type="body" style={styles.termsTitle}>
-                Terms & Conditions
-              </ThemedText>
-              <ThemedText type="small" style={{ color: theme.textSecondary }}>
-                View full care plan details
-              </ThemedText>
-            </View>
-          </View>
-          <Feather name="external-link" size={18} color={theme.textSecondary} />
+          <Feather name="external-link" size={18} color="#FFFFFF" />
+          <ThemedText type="body" style={styles.openButtonText}>
+            Open in Browser
+          </ThemedText>
         </Pressable>
       </View>
-    </ScrollView>
+    </View>
   );
 }
 
@@ -238,91 +116,68 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
   },
-  centered: {
-    justifyContent: "center",
-    alignItems: "center",
-  },
   header: {
-    padding: Spacing.xl,
-    borderRadius: BorderRadius.lg,
-    marginBottom: Spacing["2xl"],
+    paddingHorizontal: Spacing.lg,
+    paddingBottom: Spacing.md,
+    ...Shadows.small,
   },
-  headerTop: {
+  headerContent: {
     flexDirection: "row",
-    justifyContent: "space-between",
     alignItems: "center",
-    marginBottom: Spacing.lg,
   },
   iconContainer: {
-    width: 48,
-    height: 48,
+    width: 44,
+    height: 44,
     borderRadius: BorderRadius.md,
     alignItems: "center",
     justifyContent: "center",
+  },
+  headerText: {
+    flex: 1,
+    marginLeft: Spacing.md,
+    marginRight: Spacing.sm,
   },
   planName: {
-    marginBottom: Spacing.xs,
+    fontWeight: "600",
+    marginBottom: 2,
   },
-  planDates: {},
-  section: {
-    marginBottom: Spacing["2xl"],
+  pdfContainer: {
+    flex: 1,
   },
-  sectionTitle: {
-    marginBottom: Spacing.md,
-  },
-  coverageItem: {
-    flexDirection: "row",
+  loadingContainer: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    justifyContent: "center",
     alignItems: "center",
-    marginBottom: Spacing.sm,
+    zIndex: 1,
   },
-  coverageText: {
-    marginLeft: Spacing.md,
+  loadingText: {
+    marginTop: Spacing.md,
   },
-  applianceCard: {
+  webview: {
+    flex: 1,
+  },
+  hidden: {
+    opacity: 0,
+  },
+  footer: {
+    paddingHorizontal: Spacing.lg,
+    paddingTop: Spacing.md,
+    ...Shadows.small,
+  },
+  openButton: {
     flexDirection: "row",
-    alignItems: "center",
-    padding: Spacing.md,
-    borderRadius: BorderRadius.md,
-    marginBottom: Spacing.sm,
-  },
-  applianceIcon: {
-    width: 40,
-    height: 40,
-    borderRadius: BorderRadius.sm,
     alignItems: "center",
     justifyContent: "center",
-    marginRight: Spacing.md,
-  },
-  applianceInfo: {
-    flex: 1,
-  },
-  applianceName: {
-    fontWeight: "500",
-  },
-  termsButton: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    padding: Spacing.lg,
+    paddingVertical: Spacing.md,
     borderRadius: BorderRadius.md,
   },
-  termsButtonContent: {
-    flexDirection: "row",
-    alignItems: "center",
-    flex: 1,
-  },
-  termsIcon: {
-    width: 40,
-    height: 40,
-    borderRadius: BorderRadius.sm,
-    alignItems: "center",
-    justifyContent: "center",
-    marginRight: Spacing.md,
-  },
-  termsTextContainer: {
-    flex: 1,
-  },
-  termsTitle: {
-    fontWeight: "500",
+  openButtonText: {
+    color: "#FFFFFF",
+    fontWeight: "600",
+    marginLeft: Spacing.sm,
   },
 });

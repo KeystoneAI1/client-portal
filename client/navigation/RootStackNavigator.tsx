@@ -24,7 +24,7 @@ export type RootStackParamList = {
   BookService: { preselectedJobDescriptionId?: number; serviceName?: string; serviceReminderId?: number } | undefined;
   EditContact: { contactId?: string };
   EditAppliance: { applianceId?: string };
-  ServicePlanDetail: { planId: string };
+  ServicePlanDetail: { planId: string; planName?: string; planStatus?: string; planStartDate?: string; planEndDate?: string };
   JobDetail: { jobId: string };
   InvoiceDetail: { invoiceId: string };
   CertificateDetail: { certificateId: string };

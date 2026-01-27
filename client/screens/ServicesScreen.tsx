@@ -160,7 +160,13 @@ export default function ServicesScreen() {
             badge={plan.status === "active" ? "Active" : undefined}
             badgeColor={theme.success}
             onPress={() =>
-              navigation.navigate("ServicePlanDetail", { planId: plan.id })
+              navigation.navigate("ServicePlanDetail", { 
+                planId: plan.id,
+                planName: plan.name,
+                planStatus: plan.status,
+                planStartDate: plan.startDate,
+                planEndDate: plan.endDate
+              })
             }
             testID={`plan-${plan.id}`}
           />
