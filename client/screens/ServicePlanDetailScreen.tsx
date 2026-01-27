@@ -6,7 +6,6 @@ import { useRoute, RouteProp } from "@react-navigation/native";
 import { Feather } from "@expo/vector-icons";
 import * as WebBrowser from "expo-web-browser";
 import * as Haptics from "expo-haptics";
-import WebView from "react-native-webview";
 
 import { ThemedText } from "@/components/ThemedText";
 import { StatusBadge } from "@/components/StatusBadge";
@@ -17,6 +16,10 @@ import { RootStackParamList } from "@/navigation/RootStackNavigator";
 const CARE_PLAN_PDF_URL = "https://www.aquila-plumbing.com/wp-content/uploads/2026/01/Aquila_Care-_Plan_T_and_C.pdf";
 
 type RouteProps = RouteProp<RootStackParamList, "ServicePlanDetail">;
+
+const WebViewComponent = Platform.OS !== "web" 
+  ? require("react-native-webview").default 
+  : null;
 
 export default function ServicePlanDetailScreen() {
   const insets = useSafeAreaInsets();
@@ -37,7 +40,9 @@ export default function ServicePlanDetailScreen() {
   };
 
   const openInBrowser = async () => {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    if (Platform.OS !== "web") {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    }
     await WebBrowser.openBrowserAsync(CARE_PLAN_PDF_URL);
   };
 
@@ -49,9 +54,42 @@ export default function ServicePlanDetailScreen() {
     return "active";
   };
 
-  const pdfViewerUrl = Platform.OS === "web" 
-    ? CARE_PLAN_PDF_URL 
-    : `https://docs.google.com/viewer?embedded=true&url=${encodeURIComponent(CARE_PLAN_PDF_URL)}`;
+  const googleDocsViewerUrl = `https://docs.google.com/viewer?embedded=true&url=${encodeURIComponent(CARE_PLAN_PDF_URL)}`;
+
+  const renderPdfViewer = () => {
+    if (Platform.OS === "web") {
+      return (
+        <iframe
+          src={googleDocsViewerUrl}
+          style={{
+            flex: 1,
+            width: "100%",
+            height: "100%",
+            border: "none",
+          }}
+          onLoad={() => setIsLoading(false)}
+          title="Terms and Conditions PDF"
+        />
+      );
+    }
+
+    if (WebViewComponent) {
+      return (
+        <WebViewComponent
+          source={{ uri: googleDocsViewerUrl }}
+          style={[styles.webview, isLoading ? styles.hidden : null]}
+          onLoadEnd={() => setIsLoading(false)}
+          onError={() => setIsLoading(false)}
+          startInLoadingState={false}
+          javaScriptEnabled={true}
+          domStorageEnabled={true}
+          scalesPageToFit={true}
+        />
+      );
+    }
+
+    return null;
+  };
 
   return (
     <View style={[styles.container, { backgroundColor: theme.backgroundRoot }]}>
@@ -85,16 +123,7 @@ export default function ServicePlanDetailScreen() {
             </ThemedText>
           </View>
         ) : null}
-        <WebView
-          source={{ uri: pdfViewerUrl }}
-          style={[styles.webview, isLoading ? styles.hidden : null]}
-          onLoadEnd={() => setIsLoading(false)}
-          onError={() => setIsLoading(false)}
-          startInLoadingState={false}
-          javaScriptEnabled={true}
-          domStorageEnabled={true}
-          scalesPageToFit={true}
-        />
+        {renderPdfViewer()}
       </View>
 
       <View style={[styles.footer, { paddingBottom: insets.bottom + Spacing.md, backgroundColor: theme.backgroundDefault }]}>
