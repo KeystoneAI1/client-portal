@@ -16,7 +16,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { Spacing, BorderRadius, Shadows } from "@/constants/theme";
 import { storage, Contact, Appliance } from "@/lib/storage";
 import { RootStackParamList } from "@/navigation/RootStackNavigator";
-import { getApiUrl } from "@/lib/queryClient";
+import { getApiUrl } from "@/lib/query-client";
 
 type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
 
