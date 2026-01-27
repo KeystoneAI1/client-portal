@@ -1,9 +1,11 @@
 import React, { useState, useEffect } from "react";
-import { View, StyleSheet, ScrollView } from "react-native";
+import { View, StyleSheet, ScrollView, Pressable } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useHeaderHeight } from "@react-navigation/elements";
-import { useRoute, RouteProp } from "@react-navigation/native";
+import { useRoute, RouteProp, useNavigation } from "@react-navigation/native";
+import { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { Feather } from "@expo/vector-icons";
+import * as Haptics from "expo-haptics";
 
 import { ThemedText } from "@/components/ThemedText";
 import { StatusBadge } from "@/components/StatusBadge";
@@ -13,6 +15,8 @@ import { Spacing, BorderRadius, Shadows } from "@/constants/theme";
 import { storage, Job, Appliance } from "@/lib/storage";
 import { RootStackParamList } from "@/navigation/RootStackNavigator";
 
+type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
+
 type RouteProps = RouteProp<RootStackParamList, "JobDetail">;
 
 export default function JobDetailScreen() {
@@ -20,9 +24,10 @@ export default function JobDetailScreen() {
   const headerHeight = useHeaderHeight();
   const { theme } = useTheme();
   const route = useRoute<RouteProps>();
+  const navigation = useNavigation<NavigationProp>();
   const { jobId } = route.params;
 
-  const [job, setJob] = useState<Job | null>(null);
+  const [job, setJob] = useState<(Job & { invoiceId?: string; certificateId?: string }) | null>(null);
   const [appliance, setAppliance] = useState<Appliance | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
@@ -209,6 +214,81 @@ export default function JobDetailScreen() {
           </View>
         </View>
       ) : null}
+
+      {(job.invoiceId || job.certificateId) ? (
+        <View style={styles.section}>
+          <ThemedText type="h4" style={styles.sectionTitle}>
+            Documents
+          </ThemedText>
+          
+          {job.invoiceId ? (
+            <Pressable
+              onPress={() => {
+                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                navigation.navigate("InvoiceDetail", { invoiceId: job.invoiceId! });
+              }}
+              style={[
+                styles.documentButton,
+                { backgroundColor: theme.backgroundDefault },
+              ]}
+            >
+              <View style={styles.documentButtonContent}>
+                <View
+                  style={[
+                    styles.documentIcon,
+                    { backgroundColor: theme.success + "15" },
+                  ]}
+                >
+                  <Feather name="file-text" size={20} color={theme.success} />
+                </View>
+                <View style={styles.documentTextContainer}>
+                  <ThemedText type="body" style={styles.documentTitle}>
+                    View Invoice
+                  </ThemedText>
+                  <ThemedText type="small" style={{ color: theme.textSecondary }}>
+                    Invoice #{job.invoiceId}
+                  </ThemedText>
+                </View>
+              </View>
+              <Feather name="chevron-right" size={18} color={theme.textSecondary} />
+            </Pressable>
+          ) : null}
+          
+          {job.certificateId ? (
+            <Pressable
+              onPress={() => {
+                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                navigation.navigate("CertificateDetail", { certificateId: job.certificateId! });
+              }}
+              style={[
+                styles.documentButton,
+                { backgroundColor: theme.backgroundDefault },
+                job.invoiceId ? { marginTop: Spacing.sm } : undefined,
+              ]}
+            >
+              <View style={styles.documentButtonContent}>
+                <View
+                  style={[
+                    styles.documentIcon,
+                    { backgroundColor: theme.primary + "15" },
+                  ]}
+                >
+                  <Feather name="award" size={20} color={theme.primary} />
+                </View>
+                <View style={styles.documentTextContainer}>
+                  <ThemedText type="body" style={styles.documentTitle}>
+                    View Certificate
+                  </ThemedText>
+                  <ThemedText type="small" style={{ color: theme.textSecondary }}>
+                    Certificate #{job.certificateId}
+                  </ThemedText>
+                </View>
+              </View>
+              <Feather name="chevron-right" size={18} color={theme.textSecondary} />
+            </Pressable>
+          ) : null}
+        </View>
+      ) : null}
     </ScrollView>
   );
 }
@@ -265,5 +345,31 @@ const styles = StyleSheet.create({
   notesCard: {
     padding: Spacing.lg,
     borderRadius: BorderRadius.md,
+  },
+  documentButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    padding: Spacing.lg,
+    borderRadius: BorderRadius.md,
+  },
+  documentButtonContent: {
+    flexDirection: "row",
+    alignItems: "center",
+    flex: 1,
+  },
+  documentIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: BorderRadius.sm,
+    alignItems: "center",
+    justifyContent: "center",
+    marginRight: Spacing.md,
+  },
+  documentTextContainer: {
+    flex: 1,
+  },
+  documentTitle: {
+    fontWeight: "500",
   },
 });

@@ -54,13 +54,16 @@ export interface ServicePlan {
 export interface Job {
   id: string;
   type: "repair" | "service" | "installation" | "inspection";
-  status: "scheduled" | "in_progress" | "completed" | "cancelled";
+  status: "scheduled" | "in_progress" | "completed" | "cancelled" | "ongoing";
   description: string;
   scheduledDate: string;
   completedDate?: string;
   technicianName?: string;
+  engineerName?: string;
   applianceId?: string;
   notes?: string;
+  invoiceId?: string;
+  certificateId?: string;
 }
 
 export interface Invoice {
