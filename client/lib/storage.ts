@@ -48,12 +48,13 @@ export interface ServicePlan {
   startDate: string;
   endDate: string;
   coverage: string[];
-  applianceIds: string[];
+  applianceIds?: string[];
+  price?: number;
 }
 
 export interface Job {
   id: string;
-  type: "repair" | "service" | "installation" | "inspection";
+  type?: "repair" | "service" | "installation" | "inspection";
   status: "scheduled" | "in_progress" | "completed" | "cancelled" | "ongoing";
   description: string;
   scheduledDate: string;
@@ -64,6 +65,7 @@ export interface Job {
   notes?: string;
   invoiceId?: string;
   certificateId?: string;
+  property?: string;
 }
 
 export interface Invoice {

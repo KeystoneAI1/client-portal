@@ -129,51 +129,34 @@ export default function HomeScreen() {
     console.log("[HomeScreen] Loading data for customer:", customerId);
     
     if (customerId) {
-      // Load diary events for upcoming appointments
+      // Load upcoming appointments from jobs with ongoing status
+      // Note: Commusoft API doesn't have customer-facing diary events endpoint
+      // So we check for jobs with status "ongoing" which indicates work in progress
       try {
-        const diaryResponse = await fetch(
-          new URL(`/api/commusoft/customer/${customerId}/diaryevents`, getApiUrl()).toString()
+        const jobsResponse = await fetch(
+          new URL(`/api/commusoft/customer/${customerId}/jobs`, getApiUrl()).toString()
         );
-        console.log("[HomeScreen] Diary events API response status:", diaryResponse.status);
-        if (diaryResponse.ok) {
-          const diaryData = await diaryResponse.json();
-          console.log("[HomeScreen] Diary events data:", JSON.stringify(diaryData).substring(0, 500));
-          // Commusoft API might return DiaryEvents, diaryevents, or events
-          const events = diaryData.DiaryEvents || diaryData.diaryevents || diaryData.events || diaryData.diaryEvents || [];
+        console.log("[HomeScreen] Jobs API response status:", jobsResponse.status);
+        if (jobsResponse.ok) {
+          const jobsData = await jobsResponse.json();
+          const jobs = jobsData.Jobs || jobsData.jobs || [];
           
-          if (events.length > 0) {
-            const sampleEvent = events[0];
-            console.log("[HomeScreen] Sample diary event fields:", Object.keys(sampleEvent).join(", "));
-          }
-          
-          // Find upcoming diary events (future or today)
-          const now = new Date();
-          const upcomingEvents = events.filter((e: any) => {
-            // Check various date field names
-            const eventDate = e.startdatetime || e.start || e.starttime || e.date || e.scheduleddate;
-            const parsedDate = eventDate ? new Date(eventDate) : null;
-            const isUpcoming = parsedDate && parsedDate >= new Date(now.toDateString());
-            // Check status - exclude completed/cancelled
-            const status = (e.status || "").toLowerCase();
-            const isNotCompleted = status !== "completed" && status !== "cancelled";
-            return isUpcoming && isNotCompleted;
-          }).sort((a: any, b: any) => {
-            const dateA = new Date(a.startdatetime || a.start || a.starttime || a.date);
-            const dateB = new Date(b.startdatetime || b.start || b.starttime || b.date);
-            return dateA.getTime() - dateB.getTime();
+          // Find ongoing jobs (not completed yet)
+          const ongoingJobs = jobs.filter((job: any) => {
+            const status = (job.status || "").toLowerCase();
+            return status === "ongoing" && !job.isJobDeleted;
           });
           
-          console.log("[HomeScreen] Upcoming diary events found:", upcomingEvents.length);
-          if (upcomingEvents.length > 0) {
-            const nextEvent = upcomingEvents[0];
-            console.log("[HomeScreen] Next diary event:", nextEvent);
-            const eventDate = nextEvent.startdatetime || nextEvent.start || nextEvent.starttime || nextEvent.date;
+          console.log("[HomeScreen] Ongoing jobs found:", ongoingJobs.length);
+          if (ongoingJobs.length > 0) {
+            const nextJob = ongoingJobs[0];
+            console.log("[HomeScreen] Next ongoing job:", nextJob.description);
             setUpcomingJob({
-              id: nextEvent.id || nextEvent.jobid || nextEvent.diaryeventid,
-              description: nextEvent.description || nextEvent.title || nextEvent.jobdescription || "Scheduled Appointment",
-              scheduledDate: eventDate,
-              status: "scheduled",
-              engineerName: nextEvent.engineername || nextEvent.engineer || "",
+              id: nextJob.id,
+              description: nextJob.description || "Scheduled Service",
+              scheduledDate: new Date().toISOString(), // Ongoing jobs don't have scheduled date
+              status: "in_progress",
+              engineerName: nextJob.engineername || "",
               property: "",
             });
           } else {
@@ -181,8 +164,7 @@ export default function HomeScreen() {
           }
         }
       } catch (error) {
-        console.error("Failed to load diary events from API:", error);
-        // Fall back to checking jobs endpoint
+        console.error("Failed to load jobs from API:", error);
         setUpcomingJob(null);
       }
 

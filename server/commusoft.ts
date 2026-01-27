@@ -204,10 +204,11 @@ export async function getJobs(customerId: string) {
 }
 
 export async function getDiaryEvents(customerId: string) {
-  // Get diary events for customer to find scheduled appointments
-  return commusoftRequest({
-    endpoint: `/api/v1/customers/${customerId}/diaryevents`,
-  });
+  // Note: Commusoft API does not have a customer-facing diary events endpoint
+  // The /api/v1/diaryevents endpoint is engineer-focused and requires engineer ID
+  // For now, return empty array - upcoming appointments will be derived from jobs with ongoing status
+  console.log(`[CommusoftClient] Diary events endpoint not available for customers, returning empty array for ${customerId}`);
+  return { diaryevents: [] };
 }
 
 export async function getJob(jobId: string) {

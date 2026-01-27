@@ -79,6 +79,7 @@ Preferred communication style: Simple, everyday language.
 **Commusoft Integration**: Field service management API integration
 - Token-based authentication with credential caching
 - Endpoints for retrieving customer data from external system
+- **API Limitation**: The Commusoft API `/api/v1/diaryevents` endpoint is engineer-focused (requires engineer ID), not customer-facing. Scheduled appointments for customers are not directly available via API. The app uses jobs with "ongoing" status to identify work in progress instead.
 
 ## External Dependencies
 
