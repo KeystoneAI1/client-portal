@@ -4,6 +4,7 @@ import {
   StyleSheet,
   Pressable,
   ActivityIndicator,
+  Linking,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useHeaderHeight } from "@react-navigation/elements";
@@ -60,6 +61,13 @@ export default function BookServiceScreen() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [suggestedAppointments, setSuggestedAppointments] = useState<SuggestedAppointment[]>([]);
   const [selectedAppointment, setSelectedAppointment] = useState<SuggestedAppointment | null>(null);
+  const [appointmentApiError, setAppointmentApiError] = useState(false);
+
+  const SUPPORT_PHONE = "+441925234450";
+
+  const handleCallSupport = () => {
+    Linking.openURL(`tel:${SUPPORT_PHONE}`);
+  };
 
   const generateMockAppointments = (): SuggestedAppointment[] => {
     const appointments: SuggestedAppointment[] = [];
@@ -100,8 +108,47 @@ export default function BookServiceScreen() {
     loadServiceForBooking();
   }, [preselectedId]);
 
+  const fetchAppointmentsWithRetry = async (postcode: string, jobDescriptionId: number, maxRetries: number = 3): Promise<SuggestedAppointment[] | null> => {
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      try {
+        console.log(`Fetching appointments attempt ${attempt}/${maxRetries}`);
+        const appointmentsResponse = await fetch(
+          new URL("/api/commusoft/suggested-appointments", getApiUrl()).toString(),
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              postcode: postcode,
+              jobdescriptionid: jobDescriptionId,
+              duration: 60,
+            }),
+          }
+        );
+        
+        if (appointmentsResponse.ok) {
+          const appointmentsData = await appointmentsResponse.json();
+          const slots = appointmentsData.suggestedappointment || appointmentsData.appointments || [];
+          if (slots.length > 0) {
+            return slots.slice(0, 5);
+          }
+          console.log(`Attempt ${attempt}: No slots returned`);
+        } else {
+          console.log(`Attempt ${attempt}: API returned error status ${appointmentsResponse.status}`);
+        }
+      } catch (error) {
+        console.error(`Attempt ${attempt} failed:`, error);
+      }
+      
+      if (attempt < maxRetries) {
+        await new Promise(resolve => setTimeout(resolve, 1000));
+      }
+    }
+    return null;
+  };
+
   const loadServiceForBooking = async () => {
     setIsLoading(true);
+    setAppointmentApiError(false);
     try {
       const response = await fetch(
         new URL("/api/commusoft/jobdescriptions", getApiUrl()).toString()
@@ -117,37 +164,17 @@ export default function BookServiceScreen() {
             
             const postcode = selectedProperty?.postcode || "";
             if (postcode) {
-              try {
-                const appointmentsResponse = await fetch(
-                  new URL("/api/commusoft/suggested-appointments", getApiUrl()).toString(),
-                  {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({
-                      postcode: postcode,
-                      jobdescriptionid: preselected.id,
-                      duration: 60,
-                    }),
-                  }
-                );
-                if (appointmentsResponse.ok) {
-                  const appointmentsData = await appointmentsResponse.json();
-                  const slots = appointmentsData.suggestedappointment || appointmentsData.appointments || [];
-                  if (slots.length > 0) {
-                    setSuggestedAppointments(slots.slice(0, 5));
-                  } else {
-                    setSuggestedAppointments(generateMockAppointments());
-                  }
-                } else {
-                  console.log("Suggested appointments API returned error, using fallback");
-                  setSuggestedAppointments(generateMockAppointments());
-                }
-              } catch (aptError) {
-                console.error("Failed to fetch suggested appointments:", aptError);
-                setSuggestedAppointments(generateMockAppointments());
+              const slots = await fetchAppointmentsWithRetry(postcode, preselected.id, 3);
+              if (slots && slots.length > 0) {
+                setSuggestedAppointments(slots);
+              } else {
+                console.log("All retry attempts failed, showing error state");
+                setAppointmentApiError(true);
+                setSuggestedAppointments([]);
               }
             } else {
-              setSuggestedAppointments(generateMockAppointments());
+              setAppointmentApiError(true);
+              setSuggestedAppointments([]);
             }
           }
         }
@@ -344,56 +371,86 @@ export default function BookServiceScreen() {
             </View>
           </View>
 
-          <ThemedText type="small" style={[styles.label, { color: theme.textSecondary }]}>
-            SELECT AN APPOINTMENT
-          </ThemedText>
+          {appointmentApiError ? (
+            <View style={[styles.errorCard, { backgroundColor: theme.backgroundDefault }]}>
+              <View style={[styles.errorIconContainer, { backgroundColor: theme.error + "20" }]}>
+                <Feather name="alert-circle" size={32} color={theme.error} />
+              </View>
+              <ThemedText type="body" style={{ textAlign: "center", marginTop: Spacing.md, fontWeight: "600" }}>
+                Unable to book appointment right now
+              </ThemedText>
+              <ThemedText type="small" style={{ color: theme.textSecondary, textAlign: "center", marginTop: Spacing.sm }}>
+                Please click the Call button to book your appointment
+              </ThemedText>
+              <Pressable
+                style={[styles.callButton, { backgroundColor: theme.success }]}
+                onPress={handleCallSupport}
+                testID="button-call-support"
+              >
+                <Feather name="phone" size={20} color="#FFFFFF" />
+                <ThemedText type="body" style={{ color: "#FFFFFF", fontWeight: "600", marginLeft: Spacing.sm }}>
+                  Call
+                </ThemedText>
+              </Pressable>
+            </View>
+          ) : (
+            <>
+              <ThemedText type="small" style={[styles.label, { color: theme.textSecondary }]}>
+                SELECT AN APPOINTMENT
+              </ThemedText>
 
-          <View style={styles.appointmentsGrid}>
-            {suggestedAppointments.map((apt, index) => {
-              const isSelected = selectedAppointment === apt;
-              return (
-                <Pressable
-                  key={`${apt.date}-${apt.starttime}-${index}`}
-                  style={[
-                    styles.appointmentCard,
-                    { backgroundColor: theme.backgroundDefault },
-                    isSelected && { borderColor: theme.primary, borderWidth: 2, backgroundColor: theme.primaryLight },
-                    Shadows.small,
-                  ]}
-                  onPress={() => {
-                    setSelectedAppointment(apt);
-                    Haptics.selectionAsync();
-                  }}
-                  testID={`appointment-${index}`}
-                >
-                  <ThemedText type="body" style={[styles.appointmentDate, isSelected && { color: theme.primary }]}>
-                    {formatAppointmentDate(apt.date)}
-                  </ThemedText>
-                  <ThemedText type="small" style={{ color: theme.textSecondary }}>
-                    {formatAppointmentTime(apt.starttime, apt.endtime)}
-                  </ThemedText>
-                  {isSelected ? (
-                    <Feather name="check-circle" size={18} color={theme.primary} style={{ marginTop: Spacing.sm }} />
-                  ) : null}
-                </Pressable>
-              );
-            })}
-          </View>
+              <View style={styles.appointmentsGrid}>
+                {suggestedAppointments.map((apt, index) => {
+                  const isSelected = selectedAppointment === apt;
+                  return (
+                    <Pressable
+                      key={`${apt.date}-${apt.starttime}-${index}`}
+                      style={[
+                        styles.appointmentCard,
+                        { backgroundColor: theme.backgroundDefault },
+                        isSelected && { borderColor: theme.primary, borderWidth: 2, backgroundColor: theme.primaryLight },
+                        Shadows.small,
+                      ]}
+                      onPress={() => {
+                        setSelectedAppointment(apt);
+                        Haptics.selectionAsync();
+                      }}
+                      testID={`appointment-${index}`}
+                    >
+                      <ThemedText type="body" style={[styles.appointmentDate, isSelected && { color: theme.primary }]}>
+                        {formatAppointmentDate(apt.date)}
+                      </ThemedText>
+                      <ThemedText type="small" style={{ color: theme.textSecondary }}>
+                        {formatAppointmentTime(apt.starttime, apt.endtime)}
+                      </ThemedText>
+                      {isSelected ? (
+                        <Feather name="check-circle" size={18} color={theme.primary} style={{ marginTop: Spacing.sm }} />
+                      ) : null}
+                    </Pressable>
+                  );
+                })}
+              </View>
+            </>
+          )}
 
-          <ThemedText type="small" style={[styles.label, { color: theme.textSecondary }]}>
-            ADDITIONAL NOTES (OPTIONAL)
-          </ThemedText>
-          <InputField
-            placeholder="Any specific details or access instructions..."
-            value={notes}
-            onChangeText={setNotes}
-            multiline
-            numberOfLines={3}
-            style={styles.textArea}
-            testID="input-notes"
-          />
+          {!appointmentApiError ? (
+            <>
+              <ThemedText type="small" style={[styles.label, { color: theme.textSecondary }]}>
+                ADDITIONAL NOTES (OPTIONAL)
+              </ThemedText>
+              <InputField
+                placeholder="Any specific details or access instructions..."
+                value={notes}
+                onChangeText={setNotes}
+                multiline
+                numberOfLines={3}
+                style={styles.textArea}
+                testID="input-notes"
+              />
+            </>
+          ) : null}
 
-          {selectedAppointment ? (
+          {selectedAppointment && !appointmentApiError ? (
             <View style={[styles.summaryCard, { backgroundColor: theme.backgroundDefault }]}>
               <ThemedText type="body" style={{ fontWeight: "600" }}>
                 Booking Summary
@@ -434,14 +491,16 @@ export default function BookServiceScreen() {
         </View>
       )}
 
-      <Button
-        onPress={handleSubmit}
-        disabled={!selectedJob || !selectedAppointment || isSubmitting}
-        style={styles.submitButton}
-        testID="button-submit"
-      >
-        {isSubmitting ? "Booking..." : "Make Booking"}
-      </Button>
+      {!appointmentApiError ? (
+        <Button
+          onPress={handleSubmit}
+          disabled={!selectedJob || !selectedAppointment || isSubmitting}
+          style={styles.submitButton}
+          testID="button-submit"
+        >
+          {isSubmitting ? "Booking..." : "Make Booking"}
+        </Button>
+      ) : null}
     </KeyboardAwareScrollViewCompat>
   );
 }
@@ -548,5 +607,27 @@ const styles = StyleSheet.create({
   },
   submitButton: {
     marginTop: Spacing.xl,
+  },
+  errorCard: {
+    padding: Spacing.xl,
+    borderRadius: BorderRadius.md,
+    alignItems: "center",
+    marginTop: Spacing.lg,
+  },
+  errorIconContainer: {
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  callButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: Spacing.xl,
+    paddingVertical: Spacing.md,
+    borderRadius: BorderRadius.md,
+    marginTop: Spacing.lg,
   },
 });
