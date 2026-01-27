@@ -126,33 +126,40 @@ export default function HomeScreen() {
 
   const loadData = useCallback(async () => {
     const customerId = user?.accountNumber || user?.id;
+    console.log("[HomeScreen] Loading data for customer:", customerId);
     
-    // Load jobs from API
     if (customerId) {
+      // Load jobs from API
       try {
         const jobsResponse = await fetch(
           new URL(`/api/commusoft/customer/${customerId}/jobs`, getApiUrl()).toString()
         );
+        console.log("[HomeScreen] Jobs API response status:", jobsResponse.status);
         if (jobsResponse.ok) {
           const jobsData = await jobsResponse.json();
+          console.log("[HomeScreen] Jobs data:", JSON.stringify(jobsData).substring(0, 500));
           const apiJobs = jobsData.job || jobsData.jobs || [];
           
-          // Find upcoming scheduled jobs
+          // Find upcoming scheduled jobs (future or today)
           const now = new Date();
           const scheduledJobs = apiJobs.filter((j: any) => {
             const jobDate = j.startdatetime ? new Date(j.startdatetime) : null;
-            return jobDate && jobDate > now && j.currentstatus !== "Completed";
+            const isUpcoming = jobDate && jobDate >= new Date(now.toDateString());
+            const isNotCompleted = j.currentstatus !== "Completed" && j.currentstatus !== "Cancelled";
+            return isUpcoming && isNotCompleted;
           }).sort((a: any, b: any) => {
             const dateA = new Date(a.startdatetime);
             const dateB = new Date(b.startdatetime);
             return dateA.getTime() - dateB.getTime();
           });
           
+          console.log("[HomeScreen] Scheduled jobs found:", scheduledJobs.length);
           if (scheduledJobs.length > 0) {
             const nextJob = scheduledJobs[0];
+            console.log("[HomeScreen] Next job:", nextJob);
             setUpcomingJob({
               id: nextJob.id || nextJob.jobid,
-              description: nextJob.description || "Scheduled Service",
+              description: nextJob.description || nextJob.jobdescription || "Scheduled Service",
               scheduledDate: nextJob.startdatetime,
               status: "scheduled",
               engineerName: nextJob.engineername || "",
@@ -165,33 +172,47 @@ export default function HomeScreen() {
       } catch (error) {
         console.error("Failed to load jobs from API:", error);
       }
+
+      // Load service plans from customer data
+      try {
+        const customerResponse = await fetch(
+          new URL(`/api/commusoft/customer/${customerId}`, getApiUrl()).toString()
+        );
+        console.log("[HomeScreen] Customer API response status:", customerResponse.status);
+        if (customerResponse.ok) {
+          const customerData = await customerResponse.json();
+          console.log("[HomeScreen] Customer data servicePlans:", JSON.stringify(customerData.Customer?.servicePlans || []).substring(0, 500));
+          const servicePlans = customerData.Customer?.servicePlans || [];
+          
+          if (servicePlans.length > 0) {
+            // Find active plan (not expired)
+            const now = new Date();
+            const activePlanData = servicePlans.find((p: any) => {
+              const expireDate = p.expiredate ? new Date(p.expiredate) : null;
+              return !expireDate || expireDate > now;
+            }) || servicePlans[0];
+            
+            setActivePlan({
+              id: activePlanData.id || activePlanData.servicePlanId || "plan-1",
+              name: activePlanData.description || activePlanData.name || "Service Plan",
+              status: "active",
+              startDate: new Date().toISOString(),
+              endDate: activePlanData.expiredate || new Date().toISOString(),
+              coverage: [],
+              price: 0,
+            });
+          } else {
+            setActivePlan(null);
+          }
+        }
+      } catch (error) {
+        console.error("Failed to load customer data from API:", error);
+        setActivePlan(null);
+      }
     }
 
-    // Load from local storage as fallback / for invoices
-    const [plans, invoices] = await Promise.all([
-      storage.getServicePlans(),
-      storage.getInvoices(),
-    ]);
-
-    // Demo active plan if none from storage
-    if (plans.length === 0) {
-      const now = new Date();
-      const endDate = new Date(now);
-      endDate.setFullYear(endDate.getFullYear() + 1);
-      setActivePlan({
-        id: "demo-plan-1",
-        name: "Home Care Plan",
-        status: "active",
-        startDate: now.toISOString(),
-        endDate: endDate.toISOString(),
-        coverage: ["Boiler", "Central Heating", "Plumbing"],
-        price: 19.99,
-      });
-    } else {
-      const active = plans.find((p) => p.status === "active") || null;
-      setActivePlan(active);
-    }
-
+    // Load invoices from local storage
+    const invoices = await storage.getInvoices();
     const pending = invoices.filter(
       (i) => i.status === "pending" || i.status === "overdue",
     );
