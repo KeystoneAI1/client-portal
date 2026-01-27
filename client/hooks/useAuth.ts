@@ -1,11 +1,19 @@
 import { createContext, useContext } from "react";
 import { User } from "@/lib/storage";
 
+export interface RequestCodeResponse {
+  success: boolean;
+  maskedPhone: string;
+  message: string;
+}
+
 export interface AuthContextType {
   user: User | null;
   isLoading: boolean;
   isAuthenticated: boolean;
   login: (email: string, password: string) => Promise<void>;
+  requestCode: (email: string) => Promise<RequestCodeResponse>;
+  verifyCode: (email: string, code: string) => Promise<void>;
   logout: () => Promise<void>;
 }
 

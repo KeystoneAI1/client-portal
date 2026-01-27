@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, ReactNode } from "react";
-import { AuthContext } from "@/hooks/useAuth";
+import { AuthContext, RequestCodeResponse } from "@/hooks/useAuth";
 import { storage, User } from "@/lib/storage";
 import { apiRequest } from "@/lib/query-client";
 
@@ -66,6 +66,63 @@ export function AuthProvider({ children }: AuthProviderProps) {
     }
   }, []);
 
+  const requestCode = useCallback(async (email: string): Promise<RequestCodeResponse> => {
+    setIsLoading(true);
+    try {
+      const response = await apiRequest("POST", "/api/auth/request-code", {
+        email,
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || "Failed to send verification code");
+      }
+
+      const data = await response.json();
+      return data as RequestCodeResponse;
+    } catch (error: any) {
+      console.error("Request code failed:", error);
+      throw new Error(error.message || "Failed to send verification code");
+    } finally {
+      setIsLoading(false);
+    }
+  }, []);
+
+  const verifyCode = useCallback(async (email: string, code: string) => {
+    setIsLoading(true);
+    try {
+      const response = await apiRequest("POST", "/api/auth/verify-code", {
+        email,
+        code,
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || "Invalid verification code");
+      }
+
+      const data = await response.json();
+
+      const userData: User = {
+        id: data.customerId,
+        email: data.email || email,
+        name: data.name || "",
+        phone: data.phone || "",
+        company: data.company || "",
+        accountNumber: data.customerId,
+      };
+
+      await storage.setAuthToken(data.token);
+      await storage.setUser(userData);
+      setUser(userData);
+    } catch (error: any) {
+      console.error("Verify code failed:", error);
+      throw new Error(error.message || "Verification failed. Please try again.");
+    } finally {
+      setIsLoading(false);
+    }
+  }, []);
+
   const logout = useCallback(async () => {
     setIsLoading(true);
     try {
@@ -85,6 +142,8 @@ export function AuthProvider({ children }: AuthProviderProps) {
         isLoading,
         isAuthenticated: !!user,
         login,
+        requestCode,
+        verifyCode,
         logout,
       }}
     >

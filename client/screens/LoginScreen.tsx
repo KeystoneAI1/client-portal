@@ -1,5 +1,5 @@
-import React, { useState } from "react";
-import { View, StyleSheet, Image, Pressable, Platform, Linking } from "react-native";
+import React, { useState, useRef } from "react";
+import { View, StyleSheet, Image, Pressable, Platform, Linking, TextInput as RNTextInput } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import * as Haptics from "expo-haptics";
 
@@ -12,31 +12,87 @@ import { useTheme } from "@/hooks/useTheme";
 import { useAuth } from "@/hooks/useAuth";
 import { Spacing, BorderRadius } from "@/constants/theme";
 
+type LoginStep = "email" | "code";
+
 export default function LoginScreen() {
   const insets = useSafeAreaInsets();
   const { theme } = useTheme();
-  const { login, isLoading } = useAuth();
+  const { requestCode, verifyCode, isLoading } = useAuth();
 
-  const [accountNumber, setAccountNumber] = useState("");
-  const [password, setPassword] = useState("");
-  const [showPassword, setShowPassword] = useState(false);
+  const [step, setStep] = useState<LoginStep>("email");
+  const [email, setEmail] = useState("");
+  const [code, setCode] = useState("");
+  const [maskedPhone, setMaskedPhone] = useState("");
   const [error, setError] = useState("");
+  const codeInputRef = useRef<RNTextInput>(null);
 
-  const handleLogin = async () => {
-    if (!accountNumber.trim() || !password.trim()) {
-      setError("Please enter your account number and password");
+  const handleRequestCode = async () => {
+    if (!email.trim()) {
+      setError("Please enter your email address");
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+      return;
+    }
+
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(email.trim())) {
+      setError("Please enter a valid email address");
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
       return;
     }
 
     try {
       setError("");
-      await login(accountNumber.trim(), password);
+      const response = await requestCode(email.trim());
+      setMaskedPhone(response.maskedPhone);
+      setStep("code");
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      setTimeout(() => codeInputRef.current?.focus(), 300);
     } catch (err: any) {
-      setError(err.message || "Invalid credentials. Please try again.");
+      setError(err.message || "Failed to send verification code");
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
     }
+  };
+
+  const handleVerifyCode = async () => {
+    if (!code.trim()) {
+      setError("Please enter the verification code");
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+      return;
+    }
+
+    if (code.trim().length !== 6) {
+      setError("Please enter the 6-digit code");
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+      return;
+    }
+
+    try {
+      setError("");
+      await verifyCode(email.trim(), code.trim());
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    } catch (err: any) {
+      setError(err.message || "Invalid verification code");
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+    }
+  };
+
+  const handleResendCode = async () => {
+    setCode("");
+    setError("");
+    try {
+      const response = await requestCode(email.trim());
+      setMaskedPhone(response.maskedPhone);
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    } catch (err: any) {
+      setError(err.message || "Failed to resend code");
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+    }
+  };
+
+  const handleBack = () => {
+    setStep("email");
+    setCode("");
+    setError("");
   };
 
   const openPrivacyPolicy = () => {
@@ -54,7 +110,7 @@ export default function LoginScreen() {
   if (isLoading) {
     return (
       <View style={[styles.container, { backgroundColor: theme.backgroundRoot }]}>
-        <LoadingSpinner message="Signing in..." />
+        <LoadingSpinner message={step === "email" ? "Looking up your account..." : "Verifying..."} />
       </View>
     );
   }
@@ -83,55 +139,91 @@ export default function LoginScreen() {
           type="body"
           style={[styles.subtitle, { color: theme.textSecondary }]}
         >
-          Sign in to manage your account
+          {step === "email"
+            ? "Enter your email to sign in"
+            : "Enter the code sent to your phone"}
         </ThemedText>
       </View>
 
       <View style={styles.form}>
-        <InputField
-          label="Account Number"
-          placeholder="Enter your account number"
-          value={accountNumber}
-          onChangeText={setAccountNumber}
-          keyboardType="number-pad"
-          autoCapitalize="none"
-          autoComplete="off"
-          leftIcon="hash"
-          testID="input-account-number"
-        />
+        {step === "email" ? (
+          <>
+            <InputField
+              label="Email Address"
+              placeholder="Enter your email address"
+              value={email}
+              onChangeText={setEmail}
+              keyboardType="email-address"
+              autoCapitalize="none"
+              autoComplete="email"
+              leftIcon="mail"
+              testID="input-email"
+            />
 
-        <InputField
-          label="Password"
-          placeholder="Enter your password"
-          value={password}
-          onChangeText={setPassword}
-          secureTextEntry={!showPassword}
-          autoCapitalize="none"
-          autoComplete="password"
-          leftIcon="lock"
-          rightIcon={showPassword ? "eye-off" : "eye"}
-          onRightIconPress={() => setShowPassword(!showPassword)}
-          testID="input-password"
-        />
+            {error ? (
+              <ThemedText
+                type="small"
+                style={[styles.error, { color: theme.error }]}
+              >
+                {error}
+              </ThemedText>
+            ) : null}
 
-        {error ? (
-          <ThemedText
-            type="small"
-            style={[styles.error, { color: theme.error }]}
-          >
-            {error}
-          </ThemedText>
-        ) : null}
+            <Button onPress={handleRequestCode} style={styles.loginButton} testID="button-send-code">
+              Send Verification Code
+            </Button>
+          </>
+        ) : (
+          <>
+            <View style={[styles.phoneInfo, { backgroundColor: theme.backgroundDefault }]}>
+              <ThemedText type="small" style={{ color: theme.textSecondary, textAlign: "center" }}>
+                We sent a 6-digit code to
+              </ThemedText>
+              <ThemedText type="body" style={{ fontWeight: "600", textAlign: "center", marginTop: Spacing.xs }}>
+                {maskedPhone}
+              </ThemedText>
+            </View>
 
-        <Button onPress={handleLogin} style={styles.loginButton} testID="button-login">
-          Sign In
-        </Button>
+            <InputField
+              ref={codeInputRef}
+              label="Verification Code"
+              placeholder="Enter 6-digit code"
+              value={code}
+              onChangeText={(text) => setCode(text.replace(/[^0-9]/g, "").slice(0, 6))}
+              keyboardType="number-pad"
+              autoComplete="one-time-code"
+              leftIcon="key"
+              testID="input-code"
+            />
 
-        <Pressable style={styles.forgotPassword}>
-          <ThemedText type="body" style={{ color: theme.primary }}>
-            Forgot Password?
-          </ThemedText>
-        </Pressable>
+            {error ? (
+              <ThemedText
+                type="small"
+                style={[styles.error, { color: theme.error }]}
+              >
+                {error}
+              </ThemedText>
+            ) : null}
+
+            <Button onPress={handleVerifyCode} style={styles.loginButton} testID="button-verify">
+              Verify Code
+            </Button>
+
+            <View style={styles.codeActions}>
+              <Pressable onPress={handleResendCode} style={styles.resendButton}>
+                <ThemedText type="body" style={{ color: theme.primary }}>
+                  Resend Code
+                </ThemedText>
+              </Pressable>
+
+              <Pressable onPress={handleBack} style={styles.backButton}>
+                <ThemedText type="body" style={{ color: theme.textSecondary }}>
+                  Use Different Email
+                </ThemedText>
+              </Pressable>
+            </View>
+          </>
+        )}
       </View>
 
       <View style={styles.footer}>
@@ -192,6 +284,11 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: "center",
   },
+  phoneInfo: {
+    padding: Spacing.lg,
+    borderRadius: BorderRadius.md,
+    marginBottom: Spacing.lg,
+  },
   error: {
     marginBottom: Spacing.lg,
     textAlign: "center",
@@ -199,9 +296,15 @@ const styles = StyleSheet.create({
   loginButton: {
     marginTop: Spacing.sm,
   },
-  forgotPassword: {
+  codeActions: {
     alignItems: "center",
     marginTop: Spacing.lg,
+    gap: Spacing.md,
+  },
+  resendButton: {
+    padding: Spacing.sm,
+  },
+  backButton: {
     padding: Spacing.sm,
   },
   footer: {
