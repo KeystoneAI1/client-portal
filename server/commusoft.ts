@@ -203,6 +203,13 @@ export async function getJobs(customerId: string) {
   });
 }
 
+export async function getDiaryEvents(customerId: string) {
+  // Get diary events for customer to find scheduled appointments
+  return commusoftRequest({
+    endpoint: `/api/v1/customers/${customerId}/diaryevents`,
+  });
+}
+
 export async function getJob(jobId: string) {
   return commusoftRequest({
     endpoint: `/api/v1/jobs/${jobId}`,
@@ -404,6 +411,19 @@ export function registerCommusoftRoutes(app: any) {
     } catch (error) {
       console.error("Failed to get jobs:", error);
       res.status(500).json({ error: "Failed to fetch jobs" });
+    }
+  });
+
+  app.get("/api/commusoft/customer/:customerId/diaryevents", async (req: Request, res: Response) => {
+    try {
+      if (!isCommusoftConfigured()) {
+        return res.status(503).json({ error: "Commusoft API not configured" });
+      }
+      const data = await getDiaryEvents(req.params.customerId);
+      res.json(data);
+    } catch (error) {
+      console.error("Failed to get diary events:", error);
+      res.status(500).json({ error: "Failed to fetch diary events" });
     }
   });
 
