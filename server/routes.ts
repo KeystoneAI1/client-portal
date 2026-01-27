@@ -167,29 +167,34 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
         const customerId = customer.id || customer.customerid;
         
-        let contactsResult: any;
-        try {
-          contactsResult = await getCustomerContacts(customerId);
-        } catch (e) {
-          console.log("Failed to get contacts, using customer data");
-        }
-
+        // Try to get phone from customer data first (faster - no extra API call)
         let phone = "";
-        const contacts = contactsResult?.contact || contactsResult?.contacts || [];
-        
-        if (contacts.length > 0) {
-          const primaryContact = contacts.find((c: any) => c.isprimary === "1" || c.isprimary === 1) || contacts[0];
-          if (primaryContact.mobile) {
-            phone = primaryContact.countrycode ? `+${primaryContact.countrycode}${primaryContact.mobile}` : primaryContact.mobile;
-          } else if (primaryContact.telephonenumber) {
-            phone = primaryContact.countrycode ? `+${primaryContact.countrycode}${primaryContact.telephonenumber}` : primaryContact.telephonenumber;
-          }
+        if (customer.mobile) {
+          phone = customer.countrycode ? `+${customer.countrycode}${customer.mobile}` : customer.mobile;
+        } else if (customer.telephonenumber) {
+          phone = customer.countrycode ? `+${customer.countrycode}${customer.telephonenumber}` : customer.telephonenumber;
         }
         
-        if (!phone && customer.mobile) {
-          phone = customer.countrycode ? `+${customer.countrycode}${customer.mobile}` : customer.mobile;
-        } else if (!phone && customer.telephonenumber) {
-          phone = customer.countrycode ? `+${customer.countrycode}${customer.telephonenumber}` : customer.telephonenumber;
+        // Only fetch contacts if we don't have a phone number yet
+        if (!phone) {
+          console.log("[Auth] No phone on customer, fetching contacts...");
+          let contactsResult: any;
+          try {
+            contactsResult = await getCustomerContacts(customerId);
+          } catch (e) {
+            console.log("Failed to get contacts");
+          }
+
+          const contacts = contactsResult?.contact || contactsResult?.contacts || [];
+          
+          if (contacts.length > 0) {
+            const primaryContact = contacts.find((c: any) => c.isprimary === "1" || c.isprimary === 1) || contacts[0];
+            if (primaryContact.mobile) {
+              phone = primaryContact.countrycode ? `+${primaryContact.countrycode}${primaryContact.mobile}` : primaryContact.mobile;
+            } else if (primaryContact.telephonenumber) {
+              phone = primaryContact.countrycode ? `+${primaryContact.countrycode}${primaryContact.telephonenumber}` : primaryContact.telephonenumber;
+            }
+          }
         }
 
         if (!phone) {

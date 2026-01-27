@@ -17,14 +17,17 @@ type LoginStep = "email" | "code";
 export default function LoginScreen() {
   const insets = useSafeAreaInsets();
   const { theme } = useTheme();
-  const { requestCode, verifyCode, isLoading } = useAuth();
+  const { requestCode, verifyCode, isLoading: authLoading } = useAuth();
 
   const [step, setStep] = useState<LoginStep>("email");
   const [email, setEmail] = useState("");
   const [code, setCode] = useState("");
   const [maskedPhone, setMaskedPhone] = useState("");
   const [error, setError] = useState("");
+  const [localLoading, setLocalLoading] = useState(false);
   const codeInputRef = useRef<RNTextInput>(null);
+  
+  const isLoading = authLoading || localLoading;
 
   const handleRequestCode = async () => {
     if (!email.trim()) {
@@ -42,6 +45,7 @@ export default function LoginScreen() {
 
     try {
       setError("");
+      setLocalLoading(true);
       const response = await requestCode(email.trim());
       setMaskedPhone(response.maskedPhone);
       setStep("code");
@@ -50,6 +54,8 @@ export default function LoginScreen() {
     } catch (err: any) {
       setError(err.message || "Failed to send verification code");
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+    } finally {
+      setLocalLoading(false);
     }
   };
 
@@ -110,7 +116,7 @@ export default function LoginScreen() {
   if (isLoading) {
     return (
       <View style={[styles.container, { backgroundColor: theme.backgroundRoot }]}>
-        <LoadingSpinner message={step === "email" ? "Looking up your account..." : "Verifying..."} />
+        <LoadingSpinner message={step === "email" ? "Looking up your account...\nThis may take up to 30 seconds" : "Verifying..."} />
       </View>
     );
   }
