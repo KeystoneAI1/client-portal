@@ -125,25 +125,78 @@ export default function HomeScreen() {
   }, [demoMode]);
 
   const loadData = useCallback(async () => {
-    const [plans, jobs, invoices] = await Promise.all([
+    const customerId = user?.accountNumber || user?.id;
+    
+    // Load jobs from API
+    if (customerId) {
+      try {
+        const jobsResponse = await fetch(
+          new URL(`/api/commusoft/customer/${customerId}/jobs`, getApiUrl()).toString()
+        );
+        if (jobsResponse.ok) {
+          const jobsData = await jobsResponse.json();
+          const apiJobs = jobsData.job || jobsData.jobs || [];
+          
+          // Find upcoming scheduled jobs
+          const now = new Date();
+          const scheduledJobs = apiJobs.filter((j: any) => {
+            const jobDate = j.startdatetime ? new Date(j.startdatetime) : null;
+            return jobDate && jobDate > now && j.currentstatus !== "Completed";
+          }).sort((a: any, b: any) => {
+            const dateA = new Date(a.startdatetime);
+            const dateB = new Date(b.startdatetime);
+            return dateA.getTime() - dateB.getTime();
+          });
+          
+          if (scheduledJobs.length > 0) {
+            const nextJob = scheduledJobs[0];
+            setUpcomingJob({
+              id: nextJob.id || nextJob.jobid,
+              description: nextJob.description || "Scheduled Service",
+              scheduledDate: nextJob.startdatetime,
+              status: "scheduled",
+              engineerName: nextJob.engineername || "",
+              property: "",
+            });
+          } else {
+            setUpcomingJob(null);
+          }
+        }
+      } catch (error) {
+        console.error("Failed to load jobs from API:", error);
+      }
+    }
+
+    // Load from local storage as fallback / for invoices
+    const [plans, invoices] = await Promise.all([
       storage.getServicePlans(),
-      storage.getJobs(),
       storage.getInvoices(),
     ]);
 
-    const active = plans.find((p) => p.status === "active") || null;
-    setActivePlan(active);
-
-    const upcoming = jobs.find(
-      (j) => j.status === "scheduled" || j.status === "in_progress",
-    ) || null;
-    setUpcomingJob(upcoming);
+    // Demo active plan if none from storage
+    if (plans.length === 0) {
+      const now = new Date();
+      const endDate = new Date(now);
+      endDate.setFullYear(endDate.getFullYear() + 1);
+      setActivePlan({
+        id: "demo-plan-1",
+        name: "Home Care Plan",
+        status: "active",
+        startDate: now.toISOString(),
+        endDate: endDate.toISOString(),
+        coverage: ["Boiler", "Central Heating", "Plumbing"],
+        price: 19.99,
+      });
+    } else {
+      const active = plans.find((p) => p.status === "active") || null;
+      setActivePlan(active);
+    }
 
     const pending = invoices.filter(
       (i) => i.status === "pending" || i.status === "overdue",
     );
     setPendingInvoices(pending);
-  }, []);
+  }, [user]);
 
   useFocusEffect(
     useCallback(() => {
@@ -228,7 +281,7 @@ export default function HomeScreen() {
                 ? `Due ${status.nextDueDate ? formatDate(status.nextDueDate.toISOString()) : "now"} - tap to book`
                 : `Next due: ${status.nextDueDate ? formatDate(status.nextDueDate.toISOString()) : "Not scheduled"}`
             }
-            status={status.isDue ? "pending" : "active"}
+            status={status.isDue ? "overdue" : "active"}
             onPress={
               status.isDue
                 ? () =>
