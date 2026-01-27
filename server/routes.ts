@@ -142,12 +142,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
         const customers = searchResult?.Customers || searchResult?.customers || [];
         
         if (customers.length > 0) {
+          console.log("[Auth] Customers found:", customers.length, "emails:", customers.map((c: any) => c.emailaddress).join(", "));
           // Find exact email match (case-insensitive)
           customer = customers.find((c: any) => 
             c.emailaddress?.toLowerCase() === email.toLowerCase()
           );
+          console.log("[Auth] Exact match found:", !!customer, customer?.id, customer?.emailaddress);
           // Fallback to first result if no exact match
           if (!customer) {
+            console.log("[Auth] No exact match, using first customer");
             customer = customers[0];
           }
         } else if (searchResult?.Customer) {
