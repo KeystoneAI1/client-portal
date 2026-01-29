@@ -173,26 +173,60 @@ export default function BookServiceScreen() {
         const data = await response.json();
         const descriptions = data.jobdescription || [];
         
+        let matchedJob: JobDescription | null = null;
+        
+        // First try to match by preselected ID
         if (preselectedId) {
-          const preselected = descriptions.find((jd: JobDescription) => jd.id === preselectedId);
-          if (preselected) {
-            setSelectedJob(preselected);
+          matchedJob = descriptions.find((jd: JobDescription) => jd.id === preselectedId) || null;
+        }
+        
+        // If no match by ID, try to match by service name
+        if (!matchedJob && serviceName) {
+          console.log("[BookService] Looking up job description by service name:", serviceName);
+          // Try exact match first
+          matchedJob = descriptions.find((jd: JobDescription) => 
+            jd.description.toLowerCase() === serviceName.toLowerCase()
+          ) || null;
+          
+          // Try partial match if no exact match
+          if (!matchedJob) {
+            // Extract key words from service name (e.g., "Domestic AC Service" -> "ac service")
+            const searchTerms = serviceName.toLowerCase()
+              .replace("domestic", "")
+              .replace("-", "")
+              .trim();
             
-            const postcode = selectedProperty?.postcode || "";
-            if (postcode) {
-              const slots = await fetchAppointmentsWithRetry(postcode, preselected.id, selectedProperty?.id, 3);
-              if (slots && slots.length > 0) {
-                setSuggestedAppointments(slots);
-              } else {
-                console.log("All retry attempts failed, showing error state");
-                setAppointmentApiError(true);
-                setSuggestedAppointments([]);
-              }
+            matchedJob = descriptions.find((jd: JobDescription) => 
+              jd.description.toLowerCase().includes(searchTerms) ||
+              searchTerms.includes(jd.description.toLowerCase())
+            ) || null;
+          }
+          
+          if (matchedJob) {
+            console.log("[BookService] Found matching job description:", matchedJob.description, "ID:", matchedJob.id);
+          }
+        }
+        
+        if (matchedJob) {
+          setSelectedJob(matchedJob);
+          
+          const postcode = selectedProperty?.postcode || "";
+          if (postcode) {
+            const slots = await fetchAppointmentsWithRetry(postcode, matchedJob.id, selectedProperty?.id, 3);
+            if (slots && slots.length > 0) {
+              setSuggestedAppointments(slots);
             } else {
+              console.log("All retry attempts failed, showing error state");
               setAppointmentApiError(true);
               setSuggestedAppointments([]);
             }
+          } else {
+            setAppointmentApiError(true);
+            setSuggestedAppointments([]);
           }
+        } else {
+          console.log("[BookService] No matching job description found for:", serviceName, "ID:", preselectedId);
+          setAppointmentApiError(true);
         }
       }
     } catch (error) {
