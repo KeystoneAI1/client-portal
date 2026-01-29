@@ -55,7 +55,6 @@ export default function HomeScreen() {
   const [upcomingJob, setUpcomingJob] = useState<Job | null>(null);
   const [pendingInvoices, setPendingInvoices] = useState<Invoice[]>([]);
   const [serviceStatuses, setServiceStatuses] = useState<ServiceStatus[]>([]);
-  const [demoMode, setDemoMode] = useState<"due" | "not-due">("not-due");
 
   const loadServiceReminders = useCallback(async () => {
     try {
@@ -66,62 +65,51 @@ export default function HomeScreen() {
         const data = await response.json();
         const reminders: ServiceReminder[] = data.servicereminders || [];
         
-        const boilerService = reminders.find(
-          (r) => r.name === "Boiler Service - Natural Gas"
-        );
-        
         const now = new Date();
         const statuses: ServiceStatus[] = [];
         
-        const airConService = reminders.find(
-          (r) => r.name === "Domestic AC Service"
-        );
-        if (airConService) {
-          const lastService = new Date(now);
-          lastService.setMonth(lastService.getMonth() - 14);
-          const nextDue = new Date(lastService);
-          nextDue.setMonth(nextDue.getMonth() + 12);
-          statuses.push({
-            reminder: airConService,
-            isDue: true,
-            nextDueDate: nextDue,
-            lastServiceDate: lastService,
-          });
-        }
-        
-        if (boilerService) {
-          let lastService: Date;
-          let nextDue: Date;
-          let isDue: boolean;
+        // Process all service reminders from Commusoft
+        for (const reminder of reminders) {
+          // Calculate service due dates based on reminder interval
+          const intervalMonths = reminder.interval || 12;
           
-          if (demoMode === "due") {
-            lastService = new Date(now);
-            lastService.setMonth(lastService.getMonth() - 12);
-            nextDue = new Date(now);
-            nextDue.setDate(nextDue.getDate() + 7);
-            isDue = true;
+          // Check if there's a last service date from the reminder data
+          let lastService: Date;
+          if (reminder.lastServiceDate) {
+            lastService = new Date(reminder.lastServiceDate);
           } else {
+            // Default: assume last service was (interval - 2 months) ago
             lastService = new Date(now);
-            lastService.setMonth(lastService.getMonth() - 10);
-            nextDue = new Date(lastService);
-            nextDue.setMonth(nextDue.getMonth() + 12);
-            isDue = false;
+            lastService.setMonth(lastService.getMonth() - (intervalMonths - 2));
           }
           
+          const nextDue = new Date(lastService);
+          nextDue.setMonth(nextDue.getMonth() + intervalMonths);
+          
+          // Service is due if next due date is within 30 days or overdue
+          const daysUntilDue = Math.ceil((nextDue.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+          const isDue = daysUntilDue <= 30;
+          
           statuses.push({
-            reminder: boilerService,
+            reminder,
             isDue,
             nextDueDate: nextDue,
             lastServiceDate: lastService,
           });
         }
         
+        // Sort: due services first, then by due date
+        statuses.sort((a, b) => {
+          if (a.isDue !== b.isDue) return a.isDue ? -1 : 1;
+          return (a.nextDueDate?.getTime() || 0) - (b.nextDueDate?.getTime() || 0);
+        });
+        
         setServiceStatuses(statuses);
       }
     } catch (error) {
       console.error("Failed to load service reminders:", error);
     }
-  }, [demoMode]);
+  }, []);
 
   const loadData = useCallback(async () => {
     const customerId = user?.accountNumber || user?.id;
@@ -287,21 +275,7 @@ export default function HomeScreen() {
           </View>
         </View>
 
-      <View style={styles.servicesHeader}>
-        <SectionHeader title="Your Services" />
-        <Pressable
-          style={[
-            styles.demoToggle,
-            { backgroundColor: demoMode === "due" ? theme.warning : theme.success },
-          ]}
-          onPress={() => setDemoMode(demoMode === "due" ? "not-due" : "due")}
-          testID="demo-toggle"
-        >
-          <ThemedText style={styles.demoToggleText}>
-            Demo: {demoMode === "due" ? "Due" : "Not Due"}
-          </ThemedText>
-        </Pressable>
-      </View>
+      <SectionHeader title="Your Services" />
       {serviceStatuses.length > 0 ? (
         serviceStatuses.map((status) => (
           <SummaryCard
@@ -462,21 +436,6 @@ const styles = StyleSheet.create({
   },
   propertySelector: {
     marginTop: Spacing.md,
-  },
-  servicesHeader: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-  },
-  demoToggle: {
-    paddingHorizontal: Spacing.sm,
-    paddingVertical: Spacing.xs,
-    borderRadius: 12,
-  },
-  demoToggleText: {
-    fontSize: 11,
-    fontWeight: "600",
-    color: "#fff",
   },
   quickActions: {
     flexDirection: "row",
