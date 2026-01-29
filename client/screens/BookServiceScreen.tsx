@@ -108,10 +108,10 @@ export default function BookServiceScreen() {
     loadServiceForBooking();
   }, [preselectedId]);
 
-  const fetchAppointmentsWithRetry = async (postcode: string, jobDescriptionId: number, maxRetries: number = 3): Promise<SuggestedAppointment[] | null> => {
+  const fetchAppointmentsWithRetry = async (postcode: string, jobDescriptionId: number, propertyId: string | undefined, maxRetries: number = 3): Promise<SuggestedAppointment[] | null> => {
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
       try {
-        console.log(`Fetching appointments attempt ${attempt}/${maxRetries}`);
+        console.log(`Fetching appointments attempt ${attempt}/${maxRetries} with propertyId: ${propertyId}`);
         const appointmentsResponse = await fetch(
           new URL("/api/commusoft/suggested-appointments", getApiUrl()).toString(),
           {
@@ -121,6 +121,7 @@ export default function BookServiceScreen() {
               postcode: postcode,
               jobdescriptionid: jobDescriptionId,
               duration: 60,
+              propertyid: propertyId,
             }),
           }
         );
@@ -179,7 +180,7 @@ export default function BookServiceScreen() {
             
             const postcode = selectedProperty?.postcode || "";
             if (postcode) {
-              const slots = await fetchAppointmentsWithRetry(postcode, preselected.id, 3);
+              const slots = await fetchAppointmentsWithRetry(postcode, preselected.id, selectedProperty?.id, 3);
               if (slots && slots.length > 0) {
                 setSuggestedAppointments(slots);
               } else {

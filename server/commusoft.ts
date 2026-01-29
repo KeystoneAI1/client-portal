@@ -265,42 +265,110 @@ export async function getSuggestedAppointments(data: {
   postcode: string;
   jobdescriptionid: number;
   duration: number;
+  propertyid?: string | number;
 }): Promise<any> {
-  // Normalize postcode
-  const normalizedPostcode = data.postcode.trim().toUpperCase().replace(/\s+/g, " ");
-  
   // Set date window for next 14 days
   const startDate = new Date();
   const endDate = new Date();
   endDate.setDate(endDate.getDate() + 14);
   
-  // Try the API with various parameter formats
-  try {
-    console.log(`[CommusoftClient] Fetching suggested appointments for postcode: ${normalizedPostcode}`);
+  // Format helpers
+  const formatLocalDateTime = (date: Date) => date.toISOString().replace('Z', '').split('.')[0];
+  const formatWithZ = (date: Date) => date.toISOString().split('.')[0] + 'Z';
+  const formatWithOffset = (date: Date) => date.toISOString().split('.')[0] + '+00:00';
+  const formatSpaced = (date: Date) => date.toISOString().replace('T', ' ').split('.')[0];
+  const formatDateOnly = (date: Date) => date.toISOString().split('T')[0];
+  
+  const normalizedPostcode = data.postcode.trim().toUpperCase().replace(/\s+/g, " ");
+  const propId = data.propertyid ? Number(data.propertyid) : null;
+  
+  // Try multiple API request formats based on AI analysis of common FSM API patterns
+  const requestAttempts = [
+    // Format 1: snake_case with property_id and Z suffix
+    ...(propId ? [{
+      property_id: propId,
+      job_description_id: data.jobdescriptionid,
+      duration: data.duration,
+      start_datetime: formatWithZ(startDate),
+      end_datetime: formatWithZ(endDate),
+      timezone: "Europe/London",
+    }] : []),
     
-    // Try with enhanced payload including date range
-    const result = await commusoftRequest({
-      method: "POST",
-      endpoint: `/api/v1/suggested-appointments`,
-      body: {
-        postcode: normalizedPostcode,
-        job_description_id: data.jobdescriptionid,
-        jobdescriptionid: data.jobdescriptionid,
-        duration: data.duration,
-        duration_minutes: data.duration,
-        start_datetime: startDate.toISOString(),
-        end_datetime: endDate.toISOString(),
-        start_date: startDate.toISOString().split('T')[0],
-        end_date: endDate.toISOString().split('T')[0],
-      },
-    });
+    // Format 2: camelCase with property ID
+    ...(propId ? [{
+      propertyId: propId,
+      jobDescriptionId: data.jobdescriptionid,
+      durationMinutes: data.duration,
+      startDateTime: formatWithOffset(startDate),
+      endDateTime: formatWithOffset(endDate),
+      timeZone: "Europe/London",
+    }] : []),
     
-    return result;
-  } catch (error) {
-    console.log(`[CommusoftClient] Suggested appointments API failed, generating fallback slots`);
-    // Return fallback generated slots if API fails
-    return generateFallbackSlots(startDate, endDate, data.duration);
+    // Format 3: lowercase with spaced datetime
+    ...(propId ? [{
+      propertyid: propId,
+      jobdescriptionid: data.jobdescriptionid,
+      durationminutes: data.duration,
+      startdatetime: formatSpaced(startDate),
+      enddatetime: formatSpaced(endDate),
+      timezone: "Europe/London",
+    }] : []),
+    
+    // Format 4: postcode with branch_id
+    {
+      postcode: normalizedPostcode,
+      job_description_id: data.jobdescriptionid,
+      duration_minutes: data.duration,
+      start_datetime: formatWithOffset(startDate),
+      end_datetime: formatWithOffset(endDate),
+      timezone: "Europe/London",
+      branch_id: 1,
+    },
+    
+    // Format 5: date only with engineer_id
+    {
+      postcode: normalizedPostcode,
+      job_description_id: data.jobdescriptionid,
+      duration_minutes: data.duration,
+      start_date: formatDateOnly(startDate),
+      end_date: formatDateOnly(endDate),
+      timezone: "Europe/London",
+      engineer_id: 1,
+      diary_event_type_id: 1,
+    },
+    
+    // Format 6: Simple postcode with local datetime
+    {
+      postcode: normalizedPostcode,
+      job_description_id: data.jobdescriptionid,
+      duration_minutes: data.duration,
+      start_datetime: formatLocalDateTime(startDate),
+      end_datetime: formatLocalDateTime(endDate),
+      timezone: "Europe/London",
+    },
+  ];
+  
+  // Try each request format
+  for (let i = 0; i < requestAttempts.length; i++) {
+    const body = requestAttempts[i];
+    try {
+      console.log(`[CommusoftClient] Suggested appointments attempt ${i + 1}/${requestAttempts.length}:`, JSON.stringify(body));
+      
+      const result = await commusoftRequest({
+        method: "POST",
+        endpoint: `/api/v1/suggested-appointments`,
+        body,
+      });
+      
+      console.log(`[CommusoftClient] Suggested appointments SUCCESS with format ${i + 1}:`, JSON.stringify(result).substring(0, 200));
+      return result;
+    } catch (error: any) {
+      console.log(`[CommusoftClient] Attempt ${i + 1} failed:`, error.message);
+    }
   }
+  
+  console.log(`[CommusoftClient] All ${requestAttempts.length} suggested appointments attempts failed, generating fallback slots`);
+  return generateFallbackSlots(startDate, endDate, data.duration);
 }
 
 // Generate fallback appointment slots when API is unavailable
@@ -638,7 +706,7 @@ export function registerCommusoftRoutes(app: any) {
       if (!isCommusoftConfigured()) {
         return res.status(503).json({ error: "Commusoft API not configured" });
       }
-      const { postcode, jobdescriptionid, duration } = req.body;
+      const { postcode, jobdescriptionid, duration, propertyid } = req.body;
       if (!postcode || !jobdescriptionid) {
         return res.status(400).json({ error: "Missing required fields: postcode and jobdescriptionid" });
       }
@@ -646,6 +714,7 @@ export function registerCommusoftRoutes(app: any) {
         postcode,
         jobdescriptionid,
         duration: duration || 60,
+        propertyid,
       });
       res.json(data);
     } catch (error) {

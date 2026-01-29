@@ -79,7 +79,9 @@ Preferred communication style: Simple, everyday language.
 **Commusoft Integration**: Field service management API integration
 - Token-based authentication with credential caching
 - Endpoints for retrieving customer data from external system
-- **API Limitation**: The Commusoft API `/api/v1/diaryevents` endpoint is engineer-focused (requires engineer ID), not customer-facing. Scheduled appointments for customers are not directly available via API. The app uses jobs with "ongoing" status to identify work in progress instead.
+- **API Limitations**:
+  1. The `/api/v1/diaryevents` endpoint is engineer-focused (requires engineer ID), not customer-facing. Scheduled appointments for customers are not directly available via API. The app uses jobs with "ongoing" status to identify work in progress instead.
+  2. The `/api/v1/suggested-appointments` endpoint consistently returns "400 - Invalid Data" for all tested request formats (property_id, postcode, various datetime formats, with branch_id/engineer_id). The API documentation is not publicly available. The app generates fallback appointment slots (weekday mornings 9-12, afternoons 1-5) when the API is unavailable. To use real Commusoft suggested appointments, API documentation from Commusoft support is required.
 
 ## External Dependencies
 
