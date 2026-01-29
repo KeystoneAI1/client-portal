@@ -28,8 +28,8 @@ const styles = StyleSheet.create({
     justifyContent: "flex-start",
   },
   icon: {
-    width: 84,
-    height: 84,
+    width: 126,
+    height: 126,
     marginRight: Spacing.sm,
   },
   title: {
