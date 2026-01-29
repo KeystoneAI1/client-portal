@@ -1,6 +1,9 @@
 import type { Request, Response } from "express";
 
-const COMMUSOFT_BASE_URL = "https://app.commusoft.co.uk/webservice_dev.php";
+// Commusoft has both dev and prod endpoints - we'll try both if one fails
+const COMMUSOFT_DEV_URL = "https://app.commusoft.co.uk/webservice_dev.php";
+const COMMUSOFT_PROD_URL = "https://app.commusoft.co.uk/webservice_prod_uk.php";
+const COMMUSOFT_BASE_URL = COMMUSOFT_DEV_URL;
 
 function getCredentials() {
   return {
@@ -87,6 +90,8 @@ async function commusoftRequest<T>({
 
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
+    "Accept": "application/json",
+    "X-Requested-With": "XMLHttpRequest",
   };
 
   console.log(`[CommusoftClient] ${method} ${endpoint}`);
@@ -296,77 +301,146 @@ export async function getSuggestedAppointments(data: {
   jobdescriptionid: number;
   duration: number;
   propertyid?: string | number;
+  customerid?: string | number;
+  contactid?: string | number;
 }): Promise<any> {
   // Set date window for next 14 days
   const startDate = new Date();
   const endDate = new Date();
   endDate.setDate(endDate.getDate() + 14);
   
-  const normalizedPostcode = data.postcode.trim().toUpperCase().replace(/\s+/g, " ");
-  const propId = data.propertyid ? String(data.propertyid) : null;
-  
-  // Format dates as YYYY-MM-DD for Commusoft
+  // Format dates as YYYY-MM-DD (required format per OpenAI research)
   const formatDate = (date: Date) => date.toISOString().split('T')[0];
   
-  // Try formats based on OpenAI research of Commusoft API patterns
-  const requestAttempts = [
-    // Format 1: property_id with underscore, start_date/end_date
-    ...(propId ? [{
-      suggestedappointment: {
-        property_id: Number(propId),
-        start_date: formatDate(startDate),
-        end_date: formatDate(endDate),
-        duration: data.duration,
-      }
-    }] : []),
-    
-    // Format 2: Flat format with property_id
-    ...(propId ? [{
-      property_id: Number(propId),
-      start_date: formatDate(startDate),
-      end_date: formatDate(endDate),
-      duration: data.duration,
-    }] : []),
-    
-    // Format 3: Nested with postcode instead of property_id
-    {
-      suggestedappointment: {
-        postcode: normalizedPostcode,
-        start_date: formatDate(startDate),
-        end_date: formatDate(endDate),
-        duration: data.duration,
-      }
-    },
-    
-    // Format 4: Flat with postcode
-    {
-      postcode: normalizedPostcode,
-      start_date: formatDate(startDate),
-      end_date: formatDate(endDate),
-      duration: data.duration,
-    },
-  ];
+  const propId = data.propertyid ? Number(data.propertyid) : null;
+  const custId = data.customerid ? Number(data.customerid) : null;
+  let contId = data.contactid ? Number(data.contactid) : null;
   
-  // Try each request format
-  for (let i = 0; i < requestAttempts.length; i++) {
-    const body = requestAttempts[i];
+  // If no contact_id provided, try to look it up from customer data
+  if (!contId && custId) {
     try {
-      console.log(`[CommusoftClient] Suggested appointments attempt ${i + 1}/${requestAttempts.length}:`, JSON.stringify(body));
-      
-      const result = await commusoftRequest({
-        method: "POST",
-        endpoint: `/api/v1/suggested-appointments`,
-        body,
-      });
-      
-      console.log(`[CommusoftClient] Suggested appointments SUCCESS with format ${i + 1}:`, JSON.stringify(result).substring(0, 200));
-      return result;
-    } catch (error: any) {
-      console.log(`[CommusoftClient] Attempt ${i + 1} failed:`, error.message);
+      const customerData = await getCustomer(String(custId));
+      const customer = customerData?.Customer || customerData;
+      if (customer?.contactid) {
+        contId = Number(customer.contactid);
+        console.log(`[CommusoftClient] Looked up contact_id ${contId} from customer ${custId}`);
+      }
+    } catch (err) {
+      console.log(`[CommusoftClient] Could not look up contact_id for customer ${custId}`);
     }
   }
   
-  console.log(`[CommusoftClient] All ${requestAttempts.length} suggested appointments attempts failed, returning empty result`);
+  // OpenAI deep research: Try multiple formats based on Commusoft patterns
+  // NOTE: Job data shows IDs as strings, so we'll try both string and integer formats
+  const postcode = data.postcode?.trim().toUpperCase().replace(/\s+/g, " ") || "";
+  const jobDescId = data.jobdescriptionid;
+  const requestAttempts: Record<string, any>[] = [];
+  
+  // Format 1: STRING IDs (matching job data pattern where IDs are strings)
+  if (propId && contId) {
+    requestAttempts.push({
+      contactid: String(contId),
+      propertyid: String(propId),
+      jobdescriptionid: String(jobDescId),
+      postcode: postcode,
+    });
+  }
+  
+  // Format 2: snake_case with string IDs
+  if (propId && contId) {
+    requestAttempts.push({
+      contact_id: String(contId),
+      property_id: String(propId),
+      job_description_id: String(jobDescId),
+      start_date: formatDate(startDate),
+      end_date: formatDate(endDate),
+      duration: String(data.duration),
+    });
+  }
+  
+  // Format 3: Minimal with just required fields (string IDs)
+  if (propId) {
+    requestAttempts.push({
+      propertyid: String(propId),
+      jobdescriptionid: String(jobDescId),
+    });
+  }
+  
+  // Format 4: Include postcode as location field
+  if (propId && postcode) {
+    requestAttempts.push({
+      property_id: String(propId),
+      contact_id: String(contId),
+      job_description_id: String(jobDescId),
+      postcode: postcode,
+      start_date: formatDate(startDate),
+      end_date: formatDate(endDate),
+    });
+  }
+  
+  // Format 5: Integer IDs with snake_case (original format)
+  if (propId && custId) {
+    requestAttempts.push({
+      customer_id: custId,
+      property_id: propId,
+      contact_id: contId,
+      job_description_id: jobDescId,
+      start_date: formatDate(startDate),
+      end_date: formatDate(endDate),
+      duration: data.duration,
+    });
+  }
+  
+  // Format 6: Wrapped in "suggestedappointment" key (no underscore)
+  if (propId) {
+    requestAttempts.push({
+      suggestedappointment: {
+        propertyid: String(propId),
+        contactid: String(contId),
+        jobdescriptionid: String(jobDescId),
+      }
+    });
+  }
+  
+  // Try each request format on BOTH dev and prod endpoints
+  const baseUrls = [COMMUSOFT_DEV_URL, COMMUSOFT_PROD_URL];
+  
+  for (const baseUrl of baseUrls) {
+    for (let i = 0; i < requestAttempts.length; i++) {
+      const body = requestAttempts[i];
+      try {
+        console.log(`[CommusoftClient] Suggested appointments attempt ${i + 1}/${requestAttempts.length} on ${baseUrl}:`, JSON.stringify(body).substring(0, 150));
+        
+        const token = await getCommusoftToken();
+        const response = await fetch(`${baseUrl}/api/v1/suggested-appointments?token=${encodeURIComponent(token)}`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+            "X-Requested-With": "XMLHttpRequest",
+          },
+          body: JSON.stringify(body),
+        });
+        
+        if (response.ok) {
+          const result = await response.json();
+          console.log(`[CommusoftClient] Suggested appointments SUCCESS with format ${i + 1} on ${baseUrl}:`, JSON.stringify(result).substring(0, 200));
+          return result;
+        } else {
+          const errorText = await response.text();
+          // Extract short error message from HTML response
+          const shortError = errorText.includes("Invalid Data") ? "Invalid Data" : 
+                             errorText.includes("Method Not Allowed") ? "Method Not Allowed" : 
+                             `${response.status}`;
+          console.log(`[CommusoftClient] Attempt ${i + 1} on ${baseUrl.split('/').pop()} failed: ${shortError}`);
+        }
+      } catch (error: any) {
+        console.log(`[CommusoftClient] Attempt ${i + 1} failed:`, error.message);
+      }
+    }
+  }
+  
+  console.log(`[CommusoftClient] All suggested appointments attempts failed, returning empty result`);
   // Return empty result - no fake data
   return { suggested_appointments: [], api_unavailable: true };
 }
@@ -674,7 +748,7 @@ export function registerCommusoftRoutes(app: any) {
       if (!isCommusoftConfigured()) {
         return res.status(503).json({ error: "Commusoft API not configured" });
       }
-      const { postcode, jobdescriptionid, duration, propertyid } = req.body;
+      const { postcode, jobdescriptionid, duration, propertyid, customerid, contactid } = req.body;
       if (!postcode || !jobdescriptionid) {
         return res.status(400).json({ error: "Missing required fields: postcode and jobdescriptionid" });
       }
@@ -683,6 +757,8 @@ export function registerCommusoftRoutes(app: any) {
         jobdescriptionid,
         duration: duration || 60,
         propertyid,
+        customerid,
+        contactid,
       });
       res.json(data);
     } catch (error) {

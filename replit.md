@@ -81,7 +81,15 @@ Preferred communication style: Simple, everyday language.
 - Endpoints for retrieving customer data from external system
 - **API Limitations**:
   1. The `/api/v1/diaryevents` endpoint is engineer-focused (requires engineer ID), not customer-facing. Scheduled appointments for customers are not directly available via API. The app uses jobs with "ongoing" status to identify work in progress instead.
-  2. The `/api/v1/suggested-appointments` endpoint consistently returns "400 - Invalid Data" for all tested request formats (property_id, postcode, various datetime formats, with branch_id/engineer_id). The API documentation is not publicly available. The app generates fallback appointment slots (weekday mornings 9-12, afternoons 1-5) when the API is unavailable. To use real Commusoft suggested appointments, API documentation from Commusoft support is required.
+  2. The `/api/v1/suggested-appointments` endpoint consistently returns "400 - Invalid Data" for all tested request formats. Extensive testing has been done with OpenAI-assisted research including:
+     - String and integer IDs (contactid, propertyid, jobdescriptionid)
+     - CamelCase keys (customerId, propertyId) and snake_case keys (customer_id, property_id)
+     - With and without dates, postcode, duration, usergroupsid, branch_id
+     - Minimal and full field sets
+     - Wrapped (suggestedappointment:{...}) and flat JSON formats
+     - Both dev endpoint (webservice_dev.php) and prod endpoint (webservice_prod_uk.php)
+     - X-Requested-With header and Accept: application/json header
+     All return "Invalid Data". The app generates fallback appointment slots (weekday mornings 9-12, afternoons 1-5) when the API is unavailable. To enable real Commusoft suggested appointments, contact Commusoft support for API documentation specific to your account.
 
 ## External Dependencies
 

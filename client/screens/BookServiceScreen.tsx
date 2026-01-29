@@ -74,9 +74,12 @@ export default function BookServiceScreen() {
   }, [preselectedId]);
 
   const fetchAppointmentsWithRetry = async (postcode: string, jobDescriptionId: number, propertyId: string | undefined, maxRetries: number = 3): Promise<SuggestedAppointment[] | null> => {
+    // Get customer ID from user context
+    const customerId = user?.accountNumber;
+    
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
       try {
-        console.log(`Fetching appointments attempt ${attempt}/${maxRetries} with propertyId: ${propertyId}`);
+        console.log(`Fetching appointments attempt ${attempt}/${maxRetries} with propertyId: ${propertyId}, customerId: ${customerId}`);
         const appointmentsResponse = await fetch(
           new URL("/api/commusoft/suggested-appointments", getApiUrl()).toString(),
           {
@@ -87,6 +90,7 @@ export default function BookServiceScreen() {
               jobdescriptionid: jobDescriptionId,
               duration: 60,
               propertyid: propertyId,
+              customerid: customerId,
             }),
           }
         );
