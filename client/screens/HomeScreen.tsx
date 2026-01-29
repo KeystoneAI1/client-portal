@@ -248,7 +248,7 @@ export default function HomeScreen() {
       {/* Fixed Header with Logo and Client Portal */}
       <View style={[styles.fixedHeader, { 
         paddingTop: insets.top + Spacing.md,
-        backgroundColor: theme.backgroundDefault,
+        backgroundColor: "#FFFFFF",
         borderBottomColor: theme.border,
       }]}>
         <Image
@@ -444,8 +444,8 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
   },
   headerLogo: {
-    width: 100,
-    height: 100,
+    width: 125,
+    height: 125,
   },
   headerTitle: {
     marginTop: Spacing.xs,
