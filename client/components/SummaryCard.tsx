@@ -55,7 +55,7 @@ export function SummaryCard({
       onPressOut={handlePressOut}
       style={[
         styles.container,
-        { backgroundColor: "#E3F2FD" },
+        { backgroundColor: theme.cardBackground || theme.backgroundDefault },
         Shadows.small,
         animatedStyle,
       ]}

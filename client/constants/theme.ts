@@ -1,44 +1,48 @@
 import { Platform } from "react-native";
 
-const primaryLight = "#1E5A8E";
-const primaryDark = "#3B7AB8";
+const primaryLight = "#0B5CAD";
+const primaryDark = "#4DA3FF";
 const accentLight = "#E47D3C";
 const accentDark = "#F59A5E";
 
 export const Colors = {
   light: {
-    text: "#1A1A1A",
-    textSecondary: "#4A5A4A",
+    text: "#0F172A",
+    textSecondary: "#475569",
     buttonText: "#FFFFFF",
     tabIconDefault: "#6B7280",
     tabIconSelected: primaryLight,
     link: primaryLight,
     accent: accentLight,
     primary: primaryLight,
-    backgroundRoot: "#C8E6C9",
-    backgroundDefault: "#E8F5E9",
-    backgroundSecondary: "#A5D6A7",
-    backgroundTertiary: "#81C784",
-    border: "#66BB6A",
+    backgroundRoot: "#F6F8FB",
+    backgroundDefault: "#FFFFFF",
+    backgroundSecondary: "#EEF2F7",
+    backgroundTertiary: "#F2F6FA",
+    border: "#D5DEE9",
+    cardBackground: "#FFFFFF",
+    inputBackground: "#F2F6FA",
     success: "#10B981",
     warning: "#F59E0B",
     error: "#EF4444",
     cardShadow: "rgba(0, 0, 0, 0.05)",
   },
   dark: {
-    text: "#ECEDEE",
-    textSecondary: "#B8C5B8",
+    text: "#E6EDF6",
+    textSecondary: "#A7B4C6",
     buttonText: "#FFFFFF",
     tabIconDefault: "#9BA1A6",
     tabIconSelected: primaryDark,
     link: primaryDark,
     accent: accentDark,
     primary: primaryDark,
-    backgroundRoot: "#43A047",
-    backgroundDefault: "#4CAF50",
-    backgroundSecondary: "#66BB6A",
-    backgroundTertiary: "#81C784",
-    border: "#A5D6A7",
+    backgroundRoot: "#0B1220",
+    backgroundDefault: "#0F172A",
+    backgroundSecondary: "#121E33",
+    backgroundTertiary: "#0E1A2B",
+    border: "#23324A",
+    cardBackground: "#111B2E",
+    inputBackground: "#0E1A2B",
     success: "#34D399",
     warning: "#FBBF24",
     error: "#F87171",
