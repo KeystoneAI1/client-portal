@@ -12,6 +12,8 @@ import ServicePlanDetailScreen from "@/screens/ServicePlanDetailScreen";
 import JobDetailScreen from "@/screens/JobDetailScreen";
 import InvoiceDetailScreen from "@/screens/InvoiceDetailScreen";
 import CertificateDetailScreen from "@/screens/CertificateDetailScreen";
+import PrivacyPolicyScreen from "@/screens/PrivacyPolicyScreen";
+import TermsOfServiceScreen from "@/screens/TermsOfServiceScreen";
 import { useScreenOptions } from "@/hooks/useScreenOptions";
 import { useAuth } from "@/hooks/useAuth";
 import { LoadingSpinner } from "@/components/LoadingSpinner";
@@ -28,6 +30,8 @@ export type RootStackParamList = {
   JobDetail: { jobId: string };
   InvoiceDetail: { invoiceId: string };
   CertificateDetail: { certificateId: string };
+  PrivacyPolicy: undefined;
+  TermsOfService: undefined;
 };
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
@@ -122,13 +126,47 @@ export default function RootStackNavigator() {
               headerTitle: "Certificate",
             }}
           />
+          <Stack.Screen
+            name="PrivacyPolicy"
+            component={PrivacyPolicyScreen}
+            options={{
+              ...opaqueScreenOptions,
+              headerTitle: "Privacy Policy",
+            }}
+          />
+          <Stack.Screen
+            name="TermsOfService"
+            component={TermsOfServiceScreen}
+            options={{
+              ...opaqueScreenOptions,
+              headerTitle: "Terms of Service",
+            }}
+          />
         </>
       ) : (
-        <Stack.Screen
-          name="Login"
-          component={LoginScreen}
-          options={{ headerShown: false }}
-        />
+        <>
+          <Stack.Screen
+            name="Login"
+            component={LoginScreen}
+            options={{ headerShown: false }}
+          />
+          <Stack.Screen
+            name="PrivacyPolicy"
+            component={PrivacyPolicyScreen}
+            options={{
+              ...opaqueScreenOptions,
+              headerTitle: "Privacy Policy",
+            }}
+          />
+          <Stack.Screen
+            name="TermsOfService"
+            component={TermsOfServiceScreen}
+            options={{
+              ...opaqueScreenOptions,
+              headerTitle: "Terms of Service",
+            }}
+          />
+        </>
       )}
     </Stack.Navigator>
   );

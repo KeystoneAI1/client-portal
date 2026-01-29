@@ -2,6 +2,8 @@ import React from "react";
 import { View, StyleSheet, ScrollView, Platform, Linking } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useHeaderHeight } from "@react-navigation/elements";
+import { useNavigation } from "@react-navigation/native";
+import { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import * as Haptics from "expo-haptics";
 
 import { ThemedText } from "@/components/ThemedText";
@@ -9,12 +11,16 @@ import { ListItem } from "@/components/ListItem";
 import { useTheme } from "@/hooks/useTheme";
 import { useAuth } from "@/hooks/useAuth";
 import { Spacing, BorderRadius } from "@/constants/theme";
+import { RootStackParamList } from "@/navigation/RootStackNavigator";
+
+type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
 
 export default function SettingsScreen() {
   const insets = useSafeAreaInsets();
   const headerHeight = useHeaderHeight();
   const { theme } = useTheme();
   const { logout } = useAuth();
+  const navigation = useNavigation<NavigationProp>();
 
   const handleLogout = async () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
@@ -65,12 +71,12 @@ export default function SettingsScreen() {
         <ListItem
           title="Privacy Policy"
           leftIcon="shield"
-          onPress={() => openLink("https://example.com/privacy")}
+          onPress={() => navigation.navigate("PrivacyPolicy")}
         />
         <ListItem
           title="Terms of Service"
           leftIcon="file-text"
-          onPress={() => openLink("https://example.com/terms")}
+          onPress={() => navigation.navigate("TermsOfService")}
         />
       </View>
 

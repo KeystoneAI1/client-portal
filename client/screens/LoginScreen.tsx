@@ -1,6 +1,8 @@
 import React, { useState, useRef } from "react";
-import { View, StyleSheet, Image, Pressable, Platform, Linking, TextInput as RNTextInput } from "react-native";
+import { View, StyleSheet, Image, Pressable, TextInput as RNTextInput } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { useNavigation } from "@react-navigation/native";
+import { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import * as Haptics from "expo-haptics";
 
 import { KeyboardAwareScrollViewCompat } from "@/components/KeyboardAwareScrollViewCompat";
@@ -11,13 +13,17 @@ import { LoadingSpinner } from "@/components/LoadingSpinner";
 import { useTheme } from "@/hooks/useTheme";
 import { useAuth } from "@/hooks/useAuth";
 import { Spacing, BorderRadius } from "@/constants/theme";
+import { RootStackParamList } from "@/navigation/RootStackNavigator";
 
 type LoginStep = "email" | "code";
+
+type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
 
 export default function LoginScreen() {
   const insets = useSafeAreaInsets();
   const { theme } = useTheme();
   const { requestCode, verifyCode } = useAuth();
+  const navigation = useNavigation<NavigationProp>();
 
   const [step, setStep] = useState<LoginStep>("email");
   const [email, setEmail] = useState("");
@@ -106,15 +112,11 @@ export default function LoginScreen() {
   };
 
   const openPrivacyPolicy = () => {
-    if (Platform.OS !== "web") {
-      Linking.openURL("https://example.com/privacy");
-    }
+    navigation.navigate("PrivacyPolicy");
   };
 
   const openTerms = () => {
-    if (Platform.OS !== "web") {
-      Linking.openURL("https://example.com/terms");
-    }
+    navigation.navigate("TermsOfService");
   };
 
   if (isLoading) {
