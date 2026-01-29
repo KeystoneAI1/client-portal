@@ -5,9 +5,9 @@ import {
   ScrollView,
   RefreshControl,
   Pressable,
+  Image,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { useHeaderHeight } from "@react-navigation/elements";
 import { useBottomTabBarHeight } from "@react-navigation/bottom-tabs";
 import { useNavigation } from "@react-navigation/native";
 import { NativeStackNavigationProp } from "@react-navigation/native-stack";
@@ -44,7 +44,6 @@ type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
 
 export default function HomeScreen() {
   const insets = useSafeAreaInsets();
-  const headerHeight = useHeaderHeight();
   const tabBarHeight = useBottomTabBarHeight();
   const { theme } = useTheme();
   const { user } = useAuth();
@@ -245,32 +244,48 @@ export default function HomeScreen() {
   };
 
   return (
-    <ScrollView
-      style={[styles.container, { backgroundColor: theme.backgroundRoot }]}
-      contentContainerStyle={{
-        paddingTop: headerHeight + Spacing.xl,
-        paddingBottom: tabBarHeight + Spacing.xl,
-        paddingHorizontal: Spacing.lg,
-      }}
-      scrollIndicatorInsets={{ bottom: insets.bottom }}
-      refreshControl={
-        <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
-      }
-    >
-      <View style={styles.greeting}>
-        <ThemedText type="h2">
-          {getGreeting()}, {user?.name?.split(" ")[0] || "there"}
-        </ThemedText>
-        <ThemedText
-          type="body"
-          style={[styles.greetingSubtitle, { color: theme.textSecondary }]}
-        >
-          Here's your account overview
-        </ThemedText>
-        <View style={styles.propertySelector}>
-          <PropertySelector />
-        </View>
+    <View style={[styles.container, { backgroundColor: theme.backgroundRoot }]}>
+      {/* Fixed Header with Logo and Client Portal */}
+      <View style={[styles.fixedHeader, { 
+        paddingTop: insets.top + Spacing.md,
+        backgroundColor: theme.backgroundDefault,
+        borderBottomColor: theme.border,
+      }]}>
+        <Image
+          source={require("../assets/images/aquila-logo.png")}
+          style={styles.headerLogo}
+          resizeMode="contain"
+        />
+        <ThemedText type="h3" style={styles.headerTitle}>Client Portal</ThemedText>
       </View>
+
+      {/* Scrollable Content */}
+      <ScrollView
+        style={styles.scrollContent}
+        contentContainerStyle={{
+          paddingTop: Spacing.lg,
+          paddingBottom: tabBarHeight + Spacing.xl,
+          paddingHorizontal: Spacing.lg,
+        }}
+        scrollIndicatorInsets={{ bottom: insets.bottom }}
+        refreshControl={
+          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
+        }
+      >
+        <View style={styles.greeting}>
+          <ThemedText type="h2">
+            {getGreeting()}, {user?.name?.split(" ")[0] || "there"}
+          </ThemedText>
+          <ThemedText
+            type="body"
+            style={[styles.greetingSubtitle, { color: theme.textSecondary }]}
+          >
+            Here's your account overview
+          </ThemedText>
+          <View style={styles.propertySelector}>
+            <PropertySelector />
+          </View>
+        </View>
 
       <View style={styles.servicesHeader}>
         <SectionHeader title="Your Services" />
@@ -414,12 +429,29 @@ export default function HomeScreen() {
           />
         </>
       ) : null}
-    </ScrollView>
+      </ScrollView>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
+    flex: 1,
+  },
+  fixedHeader: {
+    alignItems: "center",
+    paddingBottom: Spacing.md,
+    borderBottomWidth: 1,
+  },
+  headerLogo: {
+    width: 100,
+    height: 100,
+  },
+  headerTitle: {
+    marginTop: Spacing.xs,
+    fontWeight: "600",
+  },
+  scrollContent: {
     flex: 1,
   },
   greeting: {
