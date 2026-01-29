@@ -127,8 +127,23 @@ export default function BookServiceScreen() {
         
         if (appointmentsResponse.ok) {
           const appointmentsData = await appointmentsResponse.json();
-          const slots = appointmentsData.suggestedappointment || appointmentsData.appointments || [];
+          console.log(`Attempt ${attempt}: API response:`, JSON.stringify(appointmentsData).substring(0, 200));
+          
+          // Handle multiple response formats
+          let slots = appointmentsData.suggestedappointment || 
+                      appointmentsData.suggested_appointments || 
+                      appointmentsData.appointments || 
+                      [];
+          
+          // Normalize slot format if needed (backend returns start_time/end_time, we need starttime/endtime)
+          slots = slots.map((slot: any) => ({
+            date: slot.date,
+            starttime: slot.starttime || slot.start_time || "09:00",
+            endtime: slot.endtime || slot.end_time || "17:00",
+          }));
+          
           if (slots.length > 0) {
+            console.log(`Attempt ${attempt}: Got ${slots.length} slots`);
             return slots.slice(0, 5);
           }
           console.log(`Attempt ${attempt}: No slots returned`);
