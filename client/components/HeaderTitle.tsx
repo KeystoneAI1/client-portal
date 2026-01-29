@@ -12,7 +12,7 @@ export function HeaderTitle({ title }: HeaderTitleProps) {
   return (
     <View style={styles.container}>
       <Image
-        source={require("../assets/images/aquila-logo-nobg.png")}
+        source={require("../assets/images/aquila-logo.png")}
         style={styles.icon}
         resizeMode="contain"
       />
