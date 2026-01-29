@@ -253,7 +253,7 @@ export default function HomeScreen() {
       }]}>
         <Image
           source={require("../assets/images/aquila-logo.png")}
-          style={[styles.headerLogo, { opacity: 0.85 }]}
+          style={styles.headerLogo}
           resizeMode="contain"
         />
         <ThemedText type="h3" style={styles.headerTitle}>Client Portal</ThemedText>
