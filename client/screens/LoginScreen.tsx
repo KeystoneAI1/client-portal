@@ -138,7 +138,7 @@ export default function LoginScreen() {
     >
       <View style={styles.logoContainer}>
         <Image
-          source={require("../assets/images/aquila-logo.jpg")}
+          source={require("../assets/images/aquila-logo-nobg.png")}
           style={styles.logo}
           resizeMode="contain"
         />
@@ -280,8 +280,8 @@ const styles = StyleSheet.create({
     marginBottom: Spacing["3xl"],
   },
   logo: {
-    width: 100,
-    height: 100,
+    width: 200,
+    height: 200,
     marginBottom: Spacing.lg,
   },
   title: {
