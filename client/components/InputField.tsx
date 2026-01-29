@@ -48,7 +48,7 @@ export function InputField({
         style={[
           styles.inputContainer,
           {
-            backgroundColor: theme.backgroundDefault,
+            backgroundColor: "#E3F2FD",
             borderColor,
           },
         ]}
