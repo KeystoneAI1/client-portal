@@ -272,79 +272,53 @@ export async function getSuggestedAppointments(data: {
   const endDate = new Date();
   endDate.setDate(endDate.getDate() + 14);
   
-  // Format helpers
-  const formatLocalDateTime = (date: Date) => date.toISOString().replace('Z', '').split('.')[0];
-  const formatWithZ = (date: Date) => date.toISOString().split('.')[0] + 'Z';
-  const formatWithOffset = (date: Date) => date.toISOString().split('.')[0] + '+00:00';
-  const formatSpaced = (date: Date) => date.toISOString().replace('T', ' ').split('.')[0];
-  const formatDateOnly = (date: Date) => date.toISOString().split('T')[0];
+  // Format: yyyy-MM-ddThh:mm:ss (Commusoft format from docs)
+  const formatDateTime = (date: Date) => date.toISOString().replace('Z', '').split('.')[0];
   
   const normalizedPostcode = data.postcode.trim().toUpperCase().replace(/\s+/g, " ");
-  const propId = data.propertyid ? Number(data.propertyid) : null;
+  const propId = data.propertyid ? String(data.propertyid) : null;
   
-  // Try multiple API request formats based on AI analysis of common FSM API patterns
+  // Commusoft uses nested object format: suggestedappointment[field]
+  // Try multiple formats based on API documentation patterns
   const requestAttempts = [
-    // Format 1: snake_case with property_id and Z suffix
+    // Format 1: Nested object format (Commusoft convention)
     ...(propId ? [{
-      property_id: propId,
-      job_description_id: data.jobdescriptionid,
-      duration: data.duration,
-      start_datetime: formatWithZ(startDate),
-      end_datetime: formatWithZ(endDate),
-      timezone: "Europe/London",
+      suggestedappointment: {
+        propertyid: propId,
+        jobdescriptionid: String(data.jobdescriptionid),
+        duration: String(data.duration),
+        start: formatDateTime(startDate),
+        end: formatDateTime(endDate),
+      }
     }] : []),
     
-    // Format 2: camelCase with property ID
-    ...(propId ? [{
-      propertyId: propId,
-      jobDescriptionId: data.jobdescriptionid,
-      durationMinutes: data.duration,
-      startDateTime: formatWithOffset(startDate),
-      endDateTime: formatWithOffset(endDate),
-      timeZone: "Europe/London",
-    }] : []),
+    // Format 2: Nested with postcode
+    {
+      suggestedappointment: {
+        postcode: normalizedPostcode,
+        jobdescriptionid: String(data.jobdescriptionid),
+        duration: String(data.duration),
+        start: formatDateTime(startDate),
+        end: formatDateTime(endDate),
+      }
+    },
     
-    // Format 3: lowercase with spaced datetime
+    // Format 3: Flat with propertyid (lowercase, no underscore)
     ...(propId ? [{
       propertyid: propId,
-      jobdescriptionid: data.jobdescriptionid,
-      durationminutes: data.duration,
-      startdatetime: formatSpaced(startDate),
-      enddatetime: formatSpaced(endDate),
-      timezone: "Europe/London",
+      jobdescriptionid: String(data.jobdescriptionid),
+      duration: String(data.duration),
+      start: formatDateTime(startDate),
+      end: formatDateTime(endDate),
     }] : []),
     
-    // Format 4: postcode with branch_id
+    // Format 4: Flat with postcode
     {
       postcode: normalizedPostcode,
-      job_description_id: data.jobdescriptionid,
-      duration_minutes: data.duration,
-      start_datetime: formatWithOffset(startDate),
-      end_datetime: formatWithOffset(endDate),
-      timezone: "Europe/London",
-      branch_id: 1,
-    },
-    
-    // Format 5: date only with engineer_id
-    {
-      postcode: normalizedPostcode,
-      job_description_id: data.jobdescriptionid,
-      duration_minutes: data.duration,
-      start_date: formatDateOnly(startDate),
-      end_date: formatDateOnly(endDate),
-      timezone: "Europe/London",
-      engineer_id: 1,
-      diary_event_type_id: 1,
-    },
-    
-    // Format 6: Simple postcode with local datetime
-    {
-      postcode: normalizedPostcode,
-      job_description_id: data.jobdescriptionid,
-      duration_minutes: data.duration,
-      start_datetime: formatLocalDateTime(startDate),
-      end_datetime: formatLocalDateTime(endDate),
-      timezone: "Europe/London",
+      jobdescriptionid: String(data.jobdescriptionid),
+      duration: String(data.duration),
+      start: formatDateTime(startDate),
+      end: formatDateTime(endDate),
     },
   ];
   

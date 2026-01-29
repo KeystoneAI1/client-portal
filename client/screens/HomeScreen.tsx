@@ -248,12 +248,12 @@ export default function HomeScreen() {
       {/* Fixed Header with Logo and Client Portal */}
       <View style={[styles.fixedHeader, { 
         paddingTop: insets.top + Spacing.md,
-        backgroundColor: "#FFFFFF",
+        backgroundColor: theme.backgroundRoot,
         borderBottomColor: theme.border,
       }]}>
         <Image
           source={require("../assets/images/aquila-logo.png")}
-          style={styles.headerLogo}
+          style={[styles.headerLogo, { opacity: 0.85 }]}
           resizeMode="contain"
         />
         <ThemedText type="h3" style={styles.headerTitle}>Client Portal</ThemedText>
