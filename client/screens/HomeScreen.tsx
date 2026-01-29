@@ -404,16 +404,18 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   fixedHeader: {
+    flexDirection: "row",
     alignItems: "center",
+    justifyContent: "space-between",
     paddingBottom: Spacing.md,
+    paddingHorizontal: Spacing.lg,
     borderBottomWidth: 1,
   },
   headerLogo: {
-    width: 125,
-    height: 125,
+    width: 100,
+    height: 50,
   },
   headerTitle: {
-    marginTop: Spacing.xs,
     fontWeight: "600",
   },
   scrollContent: {
