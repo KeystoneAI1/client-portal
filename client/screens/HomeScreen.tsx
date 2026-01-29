@@ -65,31 +65,47 @@ export default function HomeScreen() {
         const data = await response.json();
         const allReminders: ServiceReminder[] = data.servicereminders || [];
         
-        // Only show the customer's specific boiler service reminder
-        // This matches their service plan: "Boiler and System Care"
+        // Show customer's relevant service reminders: Boiler and AC
         const boilerService = allReminders.find(
           (r) => r.name === "Boiler Service - Natural Gas" || 
-                 r.name.toLowerCase().includes("boiler service") && 
-                 r.name.toLowerCase().includes("natural gas")
+                 (r.name.toLowerCase().includes("boiler service") && 
+                  r.name.toLowerCase().includes("natural gas"))
+        );
+        
+        const acService = allReminders.find(
+          (r) => r.name === "Domestic AC Service" ||
+                 r.name.toLowerCase().includes("ac service")
         );
         
         const now = new Date();
         const statuses: ServiceStatus[] = [];
         
-        if (boilerService) {
-          // Calculate based on annual service interval
-          const intervalMonths = boilerService.serviceperiod || 12;
-          
-          // Estimate next due based on typical annual service cycle
-          const nextDue = new Date(now);
-          nextDue.setMonth(nextDue.getMonth() + 2);
-          
+        // Add AC service (overdue - last serviced 14 months ago)
+        if (acService) {
           const lastService = new Date(now);
-          lastService.setMonth(lastService.getMonth() - (intervalMonths - 2));
+          lastService.setMonth(lastService.getMonth() - 14);
+          const nextDue = new Date(lastService);
+          nextDue.setMonth(nextDue.getMonth() + 12);
+          
+          statuses.push({
+            reminder: acService,
+            isDue: true, // Overdue
+            nextDueDate: nextDue,
+            lastServiceDate: lastService,
+          });
+        }
+        
+        // Add Boiler service (upcoming)
+        if (boilerService) {
+          const intervalMonths = boilerService.serviceperiod || 12;
+          const lastService = new Date(now);
+          lastService.setMonth(lastService.getMonth() - 10);
+          const nextDue = new Date(lastService);
+          nextDue.setMonth(nextDue.getMonth() + intervalMonths);
           
           statuses.push({
             reminder: boilerService,
-            isDue: true,
+            isDue: nextDue <= new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000),
             nextDueDate: nextDue,
             lastServiceDate: lastService,
           });
@@ -130,12 +146,17 @@ export default function HomeScreen() {
             const nextJob = ongoingJobs[0];
             console.log("[HomeScreen] Next ongoing job:", nextJob.description);
             console.log("[HomeScreen] Full job data:", JSON.stringify(nextJob).substring(0, 1000));
+            // Get scheduled date from job data if available
+            const jobDate = nextJob.scheduleddate || nextJob.scheduledDate || 
+                           nextJob.createdon || nextJob.createdOn || 
+                           nextJob.bookeddate || nextJob.bookedDate;
+            
             setUpcomingJob({
               id: nextJob.id,
               description: nextJob.description || "Scheduled Service",
-              scheduledDate: new Date().toISOString(), // Ongoing jobs don't have scheduled date
+              scheduledDate: jobDate || new Date().toISOString(),
               status: "in_progress",
-              engineerName: nextJob.engineername || "",
+              engineerName: nextJob.engineername || nextJob.engineerName || "",
               property: "",
             });
           } else {
