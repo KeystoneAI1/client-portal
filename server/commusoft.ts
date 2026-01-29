@@ -261,6 +261,36 @@ export async function getServiceReminders() {
   });
 }
 
+// Get appointments for a specific job (to find scheduled date/time)
+export async function getJobAppointments(jobId: string | number) {
+  try {
+    // Try /jobs/{id}/appointments first
+    const result = await commusoftRequest({
+      endpoint: `/api/v1/jobs/${jobId}/appointments`,
+    });
+    return result;
+  } catch (error) {
+    // If that fails, try /appointments?job_id=
+    try {
+      const result = await commusoftRequest({
+        endpoint: `/api/v1/appointments?job_id=${jobId}`,
+      });
+      return result;
+    } catch (e) {
+      // Try diary events as last resort
+      try {
+        const result = await commusoftRequest({
+          endpoint: `/api/v1/diaryevents?job_id=${jobId}`,
+        });
+        return result;
+      } catch (err) {
+        console.log(`[CommusoftClient] Could not find appointments for job ${jobId}`);
+        return { appointments: [] };
+      }
+    }
+  }
+}
+
 export async function getSuggestedAppointments(data: {
   postcode: string;
   jobdescriptionid: number;
@@ -272,53 +302,48 @@ export async function getSuggestedAppointments(data: {
   const endDate = new Date();
   endDate.setDate(endDate.getDate() + 14);
   
-  // Format: yyyy-MM-ddThh:mm:ss (Commusoft format from docs)
-  const formatDateTime = (date: Date) => date.toISOString().replace('Z', '').split('.')[0];
-  
   const normalizedPostcode = data.postcode.trim().toUpperCase().replace(/\s+/g, " ");
   const propId = data.propertyid ? String(data.propertyid) : null;
   
-  // Commusoft uses nested object format: suggestedappointment[field]
-  // Try multiple formats based on API documentation patterns
+  // Format dates as YYYY-MM-DD for Commusoft
+  const formatDate = (date: Date) => date.toISOString().split('T')[0];
+  
+  // Try formats based on OpenAI research of Commusoft API patterns
   const requestAttempts = [
-    // Format 1: Nested object format (Commusoft convention)
+    // Format 1: property_id with underscore, start_date/end_date
     ...(propId ? [{
       suggestedappointment: {
-        propertyid: propId,
-        jobdescriptionid: String(data.jobdescriptionid),
-        duration: String(data.duration),
-        start: formatDateTime(startDate),
-        end: formatDateTime(endDate),
+        property_id: Number(propId),
+        start_date: formatDate(startDate),
+        end_date: formatDate(endDate),
+        duration: data.duration,
       }
     }] : []),
     
-    // Format 2: Nested with postcode
+    // Format 2: Flat format with property_id
+    ...(propId ? [{
+      property_id: Number(propId),
+      start_date: formatDate(startDate),
+      end_date: formatDate(endDate),
+      duration: data.duration,
+    }] : []),
+    
+    // Format 3: Nested with postcode instead of property_id
     {
       suggestedappointment: {
         postcode: normalizedPostcode,
-        jobdescriptionid: String(data.jobdescriptionid),
-        duration: String(data.duration),
-        start: formatDateTime(startDate),
-        end: formatDateTime(endDate),
+        start_date: formatDate(startDate),
+        end_date: formatDate(endDate),
+        duration: data.duration,
       }
     },
-    
-    // Format 3: Flat with propertyid (lowercase, no underscore)
-    ...(propId ? [{
-      propertyid: propId,
-      jobdescriptionid: String(data.jobdescriptionid),
-      duration: String(data.duration),
-      start: formatDateTime(startDate),
-      end: formatDateTime(endDate),
-    }] : []),
     
     // Format 4: Flat with postcode
     {
       postcode: normalizedPostcode,
-      jobdescriptionid: String(data.jobdescriptionid),
-      duration: String(data.duration),
-      start: formatDateTime(startDate),
-      end: formatDateTime(endDate),
+      start_date: formatDate(startDate),
+      end_date: formatDate(endDate),
+      duration: data.duration,
     },
   ];
   
@@ -511,6 +536,19 @@ export function registerCommusoftRoutes(app: any) {
     } catch (error) {
       console.error("Failed to get job:", error);
       res.status(500).json({ error: "Failed to fetch job" });
+    }
+  });
+
+  app.get("/api/commusoft/jobs/:jobId/appointments", async (req: Request, res: Response) => {
+    try {
+      if (!isCommusoftConfigured()) {
+        return res.status(503).json({ error: "Commusoft API not configured" });
+      }
+      const data = await getJobAppointments(req.params.jobId);
+      res.json(data);
+    } catch (error) {
+      console.error("Failed to get job appointments:", error);
+      res.status(500).json({ error: "Failed to fetch job appointments" });
     }
   });
 

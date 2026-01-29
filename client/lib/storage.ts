@@ -57,7 +57,7 @@ export interface Job {
   type?: "repair" | "service" | "installation" | "inspection";
   status: "scheduled" | "in_progress" | "completed" | "cancelled" | "ongoing";
   description: string;
-  scheduledDate: string;
+  scheduledDate: string | null;
   completedDate?: string;
   technicianName?: string;
   engineerName?: string;

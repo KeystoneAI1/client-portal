@@ -145,16 +145,32 @@ export default function HomeScreen() {
           if (ongoingJobs.length > 0) {
             const nextJob = ongoingJobs[0];
             console.log("[HomeScreen] Next ongoing job:", nextJob.description);
-            console.log("[HomeScreen] Full job data:", JSON.stringify(nextJob).substring(0, 1000));
-            // Get scheduled date from job data if available
-            const jobDate = nextJob.scheduleddate || nextJob.scheduledDate || 
-                           nextJob.createdon || nextJob.createdOn || 
-                           nextJob.bookeddate || nextJob.bookedDate;
+            
+            // Fetch job appointments to get actual scheduled date
+            let scheduledDate: string | null = null;
+            try {
+              const apptResponse = await fetch(
+                new URL(`/api/commusoft/jobs/${nextJob.id}/appointments`, getApiUrl()).toString()
+              );
+              if (apptResponse.ok) {
+                const apptData = await apptResponse.json();
+                console.log("[HomeScreen] Job appointments:", JSON.stringify(apptData).substring(0, 500));
+                // Get the first future appointment date
+                const appointments = apptData.appointments || apptData.diaryevents || apptData || [];
+                if (Array.isArray(appointments) && appointments.length > 0) {
+                  const firstAppt = appointments[0];
+                  scheduledDate = firstAppt.start || firstAppt.start_date || firstAppt.startdate ||
+                                  firstAppt.date || firstAppt.scheduleddate || null;
+                }
+              }
+            } catch (apptError) {
+              console.log("[HomeScreen] Could not fetch job appointments:", apptError);
+            }
             
             setUpcomingJob({
               id: nextJob.id,
               description: nextJob.description || "Scheduled Service",
-              scheduledDate: jobDate || new Date().toISOString(),
+              scheduledDate: scheduledDate, // null if no real date found
               status: "in_progress",
               engineerName: nextJob.engineername || nextJob.engineerName || "",
               property: "",
@@ -383,7 +399,7 @@ export default function HomeScreen() {
         <SummaryCard
           icon="tool"
           title={upcomingJob.description}
-          subtitle={`Scheduled for ${formatDate(upcomingJob.scheduledDate)}`}
+          subtitle={upcomingJob.scheduledDate ? `Scheduled for ${formatDate(upcomingJob.scheduledDate)}` : "Date to be confirmed"}
           status={upcomingJob.status as any}
           onPress={() =>
             navigation.navigate("JobDetail", { jobId: upcomingJob.id })
