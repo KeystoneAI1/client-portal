@@ -63,12 +63,23 @@ export default function HomeScreen() {
       );
       if (response.ok) {
         const data = await response.json();
-        const reminders: ServiceReminder[] = data.servicereminders || [];
+        const allReminders: ServiceReminder[] = data.servicereminders || [];
+        
+        // Filter to only show relevant domestic services (not vehicles/MOT)
+        const relevantKeywords = ["boiler", "heating", "gas", "plumbing", "electrical", "cylinder", "radiator"];
+        const excludeKeywords = ["mot", "vehicle", "car", "van", "zsp", "ewr"];
+        
+        const reminders = allReminders.filter((r) => {
+          const nameLower = r.name.toLowerCase();
+          const hasRelevant = relevantKeywords.some(kw => nameLower.includes(kw));
+          const hasExcluded = excludeKeywords.some(kw => nameLower.includes(kw));
+          return hasRelevant && !hasExcluded;
+        });
         
         const now = new Date();
         const statuses: ServiceStatus[] = [];
         
-        // Process all service reminders from Commusoft
+        // Process filtered service reminders
         for (const reminder of reminders) {
           // Calculate service due dates based on service period (in months)
           const intervalMonths = reminder.serviceperiod || 12;
