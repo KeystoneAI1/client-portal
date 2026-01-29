@@ -23,17 +23,18 @@ export function HeaderTitle({ title }: HeaderTitleProps) {
 
 const styles = StyleSheet.create({
   container: {
-    flexDirection: "row",
+    flexDirection: "column",
     alignItems: "center",
-    justifyContent: "flex-start",
+    justifyContent: "center",
   },
   icon: {
     width: 126,
     height: 126,
-    marginRight: Spacing.sm,
   },
   title: {
     fontSize: 17,
     fontWeight: "600",
+    marginTop: Spacing.xs,
+    textAlign: "center",
   },
 });
