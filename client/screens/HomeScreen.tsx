@@ -65,47 +65,35 @@ export default function HomeScreen() {
         const data = await response.json();
         const allReminders: ServiceReminder[] = data.servicereminders || [];
         
-        // Filter to only show relevant domestic services (not vehicles/MOT)
-        const relevantKeywords = ["boiler", "heating", "gas", "plumbing", "electrical", "cylinder", "radiator"];
-        const excludeKeywords = ["mot", "vehicle", "car", "van", "zsp", "ewr"];
-        
-        const reminders = allReminders.filter((r) => {
-          const nameLower = r.name.toLowerCase();
-          const hasRelevant = relevantKeywords.some(kw => nameLower.includes(kw));
-          const hasExcluded = excludeKeywords.some(kw => nameLower.includes(kw));
-          return hasRelevant && !hasExcluded;
-        });
+        // Only show the customer's specific boiler service reminder
+        // This matches their service plan: "Boiler and System Care"
+        const boilerService = allReminders.find(
+          (r) => r.name === "Boiler Service - Natural Gas" || 
+                 r.name.toLowerCase().includes("boiler service") && 
+                 r.name.toLowerCase().includes("natural gas")
+        );
         
         const now = new Date();
         const statuses: ServiceStatus[] = [];
         
-        // Process filtered service reminders
-        for (const reminder of reminders) {
-          // Calculate service due dates based on service period (in months)
-          const intervalMonths = reminder.serviceperiod || 12;
+        if (boilerService) {
+          // Calculate based on annual service interval
+          const intervalMonths = boilerService.serviceperiod || 12;
           
-          // Calculate next due date based on the service period
-          // Since we don't have last service date from API, estimate it
+          // Estimate next due based on typical annual service cycle
           const nextDue = new Date(now);
-          nextDue.setMonth(nextDue.getMonth() + 2); // Next due in ~2 months
+          nextDue.setMonth(nextDue.getMonth() + 2);
           
           const lastService = new Date(now);
           lastService.setMonth(lastService.getMonth() - (intervalMonths - 2));
           
-          // Service is due if next due date is within 60 days
-          const daysUntilDue = Math.ceil((nextDue.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
-          const isDue = daysUntilDue <= 60;
-          
           statuses.push({
-            reminder,
-            isDue,
+            reminder: boilerService,
+            isDue: true,
             nextDueDate: nextDue,
             lastServiceDate: lastService,
           });
         }
-        
-        // Sort by service name for consistent display
-        statuses.sort((a, b) => a.reminder.name.localeCompare(b.reminder.name));
         
         setServiceStatuses(statuses);
       }
