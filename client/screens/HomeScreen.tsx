@@ -70,18 +70,12 @@ export default function HomeScreen() {
         
         // Process all service reminders from Commusoft
         for (const reminder of reminders) {
-          // Calculate service due dates based on reminder interval
-          const intervalMonths = reminder.interval || 12;
+          // Calculate service due dates based on service period (in months)
+          const intervalMonths = reminder.serviceperiod || 12;
           
-          // Check if there's a last service date from the reminder data
-          let lastService: Date;
-          if (reminder.lastServiceDate) {
-            lastService = new Date(reminder.lastServiceDate);
-          } else {
-            // Default: assume last service was (interval - 2 months) ago
-            lastService = new Date(now);
-            lastService.setMonth(lastService.getMonth() - (intervalMonths - 2));
-          }
+          // Default: assume last service was (interval - 2 months) ago if not available
+          const lastService = new Date(now);
+          lastService.setMonth(lastService.getMonth() - (intervalMonths - 2));
           
           const nextDue = new Date(lastService);
           nextDue.setMonth(nextDue.getMonth() + intervalMonths);
@@ -287,7 +281,7 @@ export default function HomeScreen() {
                 ? `Due ${status.nextDueDate ? formatDate(status.nextDueDate.toISOString()) : "now"} - tap to book`
                 : `Next due: ${status.nextDueDate ? formatDate(status.nextDueDate.toISOString()) : "Not scheduled"}`
             }
-            status={status.isDue ? "overdue" : "active"}
+            status={status.isDue ? "pending" : "active"}
             onPress={
               status.isDue
                 ? () =>
