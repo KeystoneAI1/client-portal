@@ -73,16 +73,17 @@ export default function HomeScreen() {
           // Calculate service due dates based on service period (in months)
           const intervalMonths = reminder.serviceperiod || 12;
           
-          // Default: assume last service was (interval - 2 months) ago if not available
+          // Calculate next due date based on the service period
+          // Since we don't have last service date from API, estimate it
+          const nextDue = new Date(now);
+          nextDue.setMonth(nextDue.getMonth() + 2); // Next due in ~2 months
+          
           const lastService = new Date(now);
           lastService.setMonth(lastService.getMonth() - (intervalMonths - 2));
           
-          const nextDue = new Date(lastService);
-          nextDue.setMonth(nextDue.getMonth() + intervalMonths);
-          
-          // Service is due if next due date is within 30 days or overdue
+          // Service is due if next due date is within 60 days
           const daysUntilDue = Math.ceil((nextDue.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
-          const isDue = daysUntilDue <= 30;
+          const isDue = daysUntilDue <= 60;
           
           statuses.push({
             reminder,
@@ -92,11 +93,8 @@ export default function HomeScreen() {
           });
         }
         
-        // Sort: due services first, then by due date
-        statuses.sort((a, b) => {
-          if (a.isDue !== b.isDue) return a.isDue ? -1 : 1;
-          return (a.nextDueDate?.getTime() || 0) - (b.nextDueDate?.getTime() || 0);
-        });
+        // Sort by service name for consistent display
+        statuses.sort((a, b) => a.reminder.name.localeCompare(b.reminder.name));
         
         setServiceStatuses(statuses);
       }
