@@ -69,41 +69,6 @@ export default function BookServiceScreen() {
     Linking.openURL(`tel:${SUPPORT_PHONE}`);
   };
 
-  const generateMockAppointments = (): SuggestedAppointment[] => {
-    const appointments: SuggestedAppointment[] = [];
-    const now = new Date();
-    
-    for (let i = 2; i <= 20 && appointments.length < 5; i++) {
-      const date = new Date(now);
-      date.setDate(date.getDate() + i);
-      
-      const dayOfWeek = date.getDay();
-      if (dayOfWeek === 0 || dayOfWeek === 6) continue;
-      
-      const morningSlot: SuggestedAppointment = {
-        date: date.toISOString().split("T")[0],
-        starttime: "09:00",
-        endtime: "12:00",
-        engineerid: 1,
-        engineername: "Available Slot",
-      };
-      appointments.push(morningSlot);
-      
-      if (appointments.length < 5) {
-        const afternoonSlot: SuggestedAppointment = {
-          date: date.toISOString().split("T")[0],
-          starttime: "13:00",
-          endtime: "17:00",
-          engineerid: 1,
-          engineername: "Available Slot",
-        };
-        appointments.push(afternoonSlot);
-      }
-    }
-    
-    return appointments.slice(0, 5);
-  };
-
   useEffect(() => {
     loadServiceForBooking();
   }, [preselectedId]);

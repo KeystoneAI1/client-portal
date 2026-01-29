@@ -341,53 +341,9 @@ export async function getSuggestedAppointments(data: {
     }
   }
   
-  console.log(`[CommusoftClient] All ${requestAttempts.length} suggested appointments attempts failed, generating fallback slots`);
-  return generateFallbackSlots(startDate, endDate, data.duration);
-}
-
-// Generate fallback appointment slots when API is unavailable
-function generateFallbackSlots(startDate: Date, endDate: Date, durationMinutes: number) {
-  const slots: Array<{
-    id: string;
-    date: string;
-    start_time: string;
-    end_time: string;
-    available: boolean;
-  }> = [];
-  
-  const workingHours = [
-    { start: 9, end: 12 },   // Morning: 9am-12pm
-    { start: 13, end: 17 },  // Afternoon: 1pm-5pm
-  ];
-  
-  const current = new Date(startDate);
-  current.setDate(current.getDate() + 1); // Start from tomorrow
-  
-  while (current <= endDate && slots.length < 20) {
-    const dayOfWeek = current.getDay();
-    
-    // Skip weekends
-    if (dayOfWeek !== 0 && dayOfWeek !== 6) {
-      for (const period of workingHours) {
-        // Create one slot per period
-        const slotDate = current.toISOString().split('T')[0];
-        const startHour = period.start;
-        const endHour = Math.min(period.start + Math.ceil(durationMinutes / 60), period.end);
-        
-        slots.push({
-          id: `slot-${slotDate}-${startHour}`,
-          date: slotDate,
-          start_time: `${startHour.toString().padStart(2, '0')}:00`,
-          end_time: `${endHour.toString().padStart(2, '0')}:00`,
-          available: true,
-        });
-      }
-    }
-    
-    current.setDate(current.getDate() + 1);
-  }
-  
-  return { suggested_appointments: slots, fallback: true };
+  console.log(`[CommusoftClient] All ${requestAttempts.length} suggested appointments attempts failed, returning empty result`);
+  // Return empty result - no fake data
+  return { suggested_appointments: [], api_unavailable: true };
 }
 
 export async function testConnection(): Promise<{ success: boolean; message: string }> {
