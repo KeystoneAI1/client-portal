@@ -247,7 +247,7 @@ export default function LoginScreen() {
         </ThemedText>
         <View style={styles.links}>
           <Pressable onPress={openTerms}>
-            <ThemedText type="small" style={{ color: theme.primary }}>
+            <ThemedText type="small" style={{ color: "#000000" }}>
               Terms of Service
             </ThemedText>
           </Pressable>
@@ -258,7 +258,7 @@ export default function LoginScreen() {
             {" and "}
           </ThemedText>
           <Pressable onPress={openPrivacyPolicy}>
-            <ThemedText type="small" style={{ color: theme.primary }}>
+            <ThemedText type="small" style={{ color: "#000000" }}>
               Privacy Policy
             </ThemedText>
           </Pressable>
