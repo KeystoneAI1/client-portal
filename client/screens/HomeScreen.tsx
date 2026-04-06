@@ -56,6 +56,7 @@ export default function HomeScreen() {
   const [upcomingJob, setUpcomingJob] = useState<Job | null>(null);
   const [pendingInvoices, setPendingInvoices] = useState<Invoice[]>([]);
   const [serviceStatuses, setServiceStatuses] = useState<ServiceStatus[]>([]);
+  const [announcements, setAnnouncements] = useState<any[]>([]);
 
   const loadServiceReminders = useCallback(async () => {
     const customerId = user?.accountNumber || user?.id;
@@ -232,11 +233,24 @@ export default function HomeScreen() {
     setPendingInvoices(pending);
   }, [user, selectedProperty]);
 
+  const loadAnnouncements = useCallback(async () => {
+    try {
+      const response = await fetch(new URL("/api/announcements", getApiUrl()).toString());
+      if (response.ok) {
+        const data = await response.json();
+        setAnnouncements(data.announcements || []);
+      }
+    } catch {
+      // Silent fail
+    }
+  }, []);
+
   useFocusEffect(
     useCallback(() => {
       loadData();
       loadServiceReminders();
-    }, [loadData, loadServiceReminders]),
+      loadAnnouncements();
+    }, [loadData, loadServiceReminders, loadAnnouncements]),
   );
 
   const onRefresh = async () => {
@@ -304,6 +318,37 @@ export default function HomeScreen() {
             <PropertySelector />
           </View>
         </View>
+
+      {announcements.length > 0 ? (
+        <View style={{ marginBottom: Spacing.lg }}>
+          {announcements.map((a) => {
+            const colors: Record<string, { bg: string; border: string; icon: string }> = {
+              offer: { bg: "#10B98115", border: "#10B98140", icon: "#10B981" },
+              warning: { bg: "#EF444415", border: "#EF444440", icon: "#EF4444" },
+              update: { bg: "#3B82F615", border: "#3B82F640", icon: "#3B82F6" },
+              info: { bg: theme.primary + "10", border: theme.primary + "30", icon: theme.primary },
+            };
+            const c = colors[a.type] || colors.info;
+            const icons: Record<string, keyof typeof Feather.glyphMap> = {
+              offer: "tag", warning: "alert-circle", update: "bell", info: "info",
+            };
+            return (
+              <View key={a.id} style={[styles.announcementCard, { backgroundColor: c.bg, borderColor: c.border }]}>
+                <Feather name={icons[a.type] || "info"} size={20} color={c.icon} style={{ marginTop: 2 }} />
+                <View style={{ flex: 1, marginLeft: Spacing.md }}>
+                  <ThemedText type="small" style={{ fontWeight: "700" }}>{a.title}</ThemedText>
+                  <ThemedText type="small" style={{ color: theme.textSecondary, marginTop: 2 }}>{a.message}</ThemedText>
+                  {a.linkText ? (
+                    <Pressable onPress={() => navigation.navigate("BookService", {})} style={{ marginTop: Spacing.xs }}>
+                      <ThemedText type="small" style={{ color: theme.primary, fontWeight: "600" }}>{a.linkText} →</ThemedText>
+                    </Pressable>
+                  ) : null}
+                </View>
+              </View>
+            );
+          })}
+        </View>
+      ) : null}
 
       <SectionHeader title="Your Services" />
       {serviceStatuses.length > 0 ? (
@@ -523,6 +568,13 @@ const styles = StyleSheet.create({
   },
   propertySelector: {
     marginTop: Spacing.md,
+  },
+  announcementCard: {
+    flexDirection: "row",
+    padding: Spacing.md,
+    borderRadius: 10,
+    borderWidth: 1,
+    marginBottom: Spacing.sm,
   },
   serviceStatusCard: {
     flexDirection: "row",

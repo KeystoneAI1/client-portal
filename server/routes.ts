@@ -8,6 +8,58 @@ import Anthropic from "@anthropic-ai/sdk";
 
 const customerPasswords: Map<string, string> = new Map();
 
+// Track which customers have installed/used the app
+const appUsers: Map<string, { customerId: string; name: string; email: string; lastLogin: string }> = new Map();
+
+// Announcements system — editable via API, shown to all customers
+interface Announcement {
+  id: string;
+  type: "info" | "offer" | "warning" | "update";
+  title: string;
+  message: string;
+  link?: string;
+  linkText?: string;
+  expiresAt?: string;
+  createdAt: string;
+  active: boolean;
+}
+
+const announcements: Announcement[] = [
+  {
+    id: "welcome-2026",
+    type: "info",
+    title: "Welcome to the Aquila Client Portal",
+    message: "Manage your services, book appointments, and chat with our Tech Agent — all in one place.",
+    createdAt: new Date().toISOString(),
+    active: true,
+  },
+  {
+    id: "summer-ac-2026",
+    type: "offer",
+    title: "Summer AC Offer — 10% Off Installation",
+    message: "Beat the heat this summer. Get 10% off air conditioning installation when you book before June 30th.",
+    linkText: "Book Now",
+    createdAt: new Date().toISOString(),
+    active: true,
+  },
+  {
+    id: "ev-grant-2026",
+    type: "update",
+    title: "EV Charger Grants Available",
+    message: "The OZEV grant covers up to £350 towards a home EV charger installation. We're approved installers — ask us about eligibility.",
+    createdAt: new Date().toISOString(),
+    active: true,
+  },
+  {
+    id: "price-update-2026",
+    type: "warning",
+    title: "Service Price Update — April 2026",
+    message: "Please note our service prices have been updated from 1st April 2026. Check your next booking for the latest pricing.",
+    createdAt: new Date().toISOString(),
+    active: true,
+  },
+];
+
 function generateToken(): string {
   return crypto.randomBytes(32).toString("hex");
 }
@@ -269,6 +321,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       pendingVerifications.delete(email.toLowerCase());
 
+      // Track app user
+      appUsers.set(pending.customerId, {
+        customerId: pending.customerId,
+        name: pending.customerName,
+        email: pending.email,
+        lastLogin: new Date().toISOString(),
+      });
+      console.log(`[AppUsers] Customer ${pending.customerId} (${pending.customerName}) logged into app. Total app users: ${appUsers.size}`);
+
       const token = generateToken();
       validTokens.set(token, {
         accountNumber: pending.customerId,
@@ -430,6 +491,60 @@ TONE:
         response: "I'm having trouble connecting right now. For urgent issues, please call us on 01925 234450.",
       });
     }
+  });
+
+  // Announcements — customer-facing feed
+  app.get("/api/announcements", (_req: Request, res: Response) => {
+    const now = new Date();
+    const active = announcements.filter(a => {
+      if (!a.active) return false;
+      if (a.expiresAt && new Date(a.expiresAt) < now) return false;
+      return true;
+    });
+    res.json({ announcements: active });
+  });
+
+  // Admin: create announcement
+  app.post("/api/admin/announcements", (req: Request, res: Response) => {
+    const { type, title, message, link, linkText, expiresAt } = req.body;
+    if (!title || !message) {
+      return res.status(400).json({ error: "title and message are required" });
+    }
+    const announcement: Announcement = {
+      id: crypto.randomBytes(8).toString("hex"),
+      type: type || "info",
+      title,
+      message,
+      link,
+      linkText,
+      expiresAt,
+      createdAt: new Date().toISOString(),
+      active: true,
+    };
+    announcements.unshift(announcement);
+    res.json(announcement);
+  });
+
+  // Admin: update announcement
+  app.put("/api/admin/announcements/:id", (req: Request, res: Response) => {
+    const idx = announcements.findIndex(a => a.id === req.params.id);
+    if (idx === -1) return res.status(404).json({ error: "Not found" });
+    Object.assign(announcements[idx], req.body);
+    res.json(announcements[idx]);
+  });
+
+  // Admin: delete announcement
+  app.delete("/api/admin/announcements/:id", (req: Request, res: Response) => {
+    const idx = announcements.findIndex(a => a.id === req.params.id);
+    if (idx === -1) return res.status(404).json({ error: "Not found" });
+    announcements[idx].active = false;
+    res.json({ success: true });
+  });
+
+  // Admin: list app users (customers who have logged into the app)
+  app.get("/api/admin/app-users", (_req: Request, res: Response) => {
+    const users = Array.from(appUsers.values());
+    res.json({ count: users.length, users });
   });
 
   app.get("/api/health", (_req: Request, res: Response) => {
