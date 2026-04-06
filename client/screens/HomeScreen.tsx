@@ -62,62 +62,82 @@ export default function HomeScreen() {
     if (!customerId) return;
 
     try {
-      // Load service reminders (system-level definitions)
-      const reminderResponse = await fetch(
-        new URL("/api/commusoft/servicereminders", getApiUrl()).toString()
-      );
+      // Load service reminders and customer's jobs
+      const [reminderResponse, jobsResponse, contractsResponse] = await Promise.all([
+        fetch(new URL("/api/commusoft/servicereminders", getApiUrl()).toString()),
+        fetch(new URL(`/api/commusoft/customer/${customerId}/jobs`, getApiUrl()).toString()),
+        fetch(new URL(`/api/commusoft/customer/${customerId}/contracts`, getApiUrl()).toString()).catch(() => null),
+      ]);
+
       if (!reminderResponse.ok) return;
+      const allReminders: ServiceReminder[] = (await reminderResponse.json()).servicereminders || [];
 
-      const reminderData = await reminderResponse.json();
-      const allReminders: ServiceReminder[] = reminderData.servicereminders || [];
-
-      // Load customer's jobs to find last service dates
-      const jobsResponse = await fetch(
-        new URL(`/api/commusoft/customer/${customerId}/jobs`, getApiUrl()).toString()
-      );
-      const completedJobs: any[] = [];
+      const allJobs: any[] = [];
       if (jobsResponse.ok) {
         const jobsData = await jobsResponse.json();
-        const jobs = jobsData.Jobs || jobsData.jobs || [];
-        completedJobs.push(...jobs.filter((j: any) => j.status === "completed" && j.isservicejob));
+        allJobs.push(...(jobsData.Jobs || jobsData.jobs || []));
+      }
+
+      // Get contracts/service plans to know what services the customer has
+      let contracts: any[] = [];
+      if (contractsResponse?.ok) {
+        const contractData = await contractsResponse.json();
+        contracts = contractData.contracts || contractData.Contracts || [];
       }
 
       const now = new Date();
       const statuses: ServiceStatus[] = [];
 
-      // Match reminders to customer's service history
       for (const reminder of allReminders) {
-        // Find the most recent completed job matching this reminder's job description
-        const matchingJobs = completedJobs
-          .filter((j: any) => String(j.jobdescriptionid) === String(reminder.settingsjobdescriptionid))
+        const jobDescId = String(reminder.settingsjobdescriptionid);
+
+        // Find completed service jobs for this reminder
+        const matchingJobs = allJobs
+          .filter((j: any) => String(j.jobdescriptionid) === jobDescId && j.status === "completed")
           .sort((a: any, b: any) => {
             const dateA = new Date(a.completeddate || a.createdondatetime || 0);
             const dateB = new Date(b.completeddate || b.createdondatetime || 0);
             return dateB.getTime() - dateA.getTime();
           });
 
+        // Also check if customer has any job (completed or not) for this service type
+        const anyMatchingJob = allJobs.some((j: any) => String(j.jobdescriptionid) === jobDescId);
+
         if (matchingJobs.length > 0) {
+          // Has service history — calculate next due date
           const lastJob = matchingJobs[0];
           const lastServiceDate = new Date(lastJob.completeddate || lastJob.createdondatetime);
           const intervalMonths = reminder.serviceperiod || 12;
           const nextDueDate = new Date(lastServiceDate);
           nextDueDate.setMonth(nextDueDate.getMonth() + intervalMonths);
 
-          // Show if due within 4 weeks or overdue
-          const fourWeeksFromNow = new Date(now.getTime() + 28 * 24 * 60 * 60 * 1000);
-          const isDue = nextDueDate <= fourWeeksFromNow;
           const isOverdue = nextDueDate < now;
 
-          if (isDue || isOverdue) {
-            statuses.push({
-              reminder,
-              isDue: isOverdue,
-              nextDueDate,
-              lastServiceDate,
-            });
-          }
+          statuses.push({
+            reminder,
+            isDue: isOverdue,
+            nextDueDate,
+            lastServiceDate,
+          });
+        } else if (anyMatchingJob || contracts.length > 0) {
+          // Has related jobs or contracts but no completed service — show as needing attention
+          statuses.push({
+            reminder,
+            isDue: true,
+            nextDueDate: null,
+            lastServiceDate: null,
+          });
         }
       }
+
+      // Sort: overdue first, then by due date
+      statuses.sort((a, b) => {
+        if (a.isDue && !b.isDue) return -1;
+        if (!a.isDue && b.isDue) return 1;
+        const dateA = a.nextDueDate?.getTime() || 0;
+        const dateB = b.nextDueDate?.getTime() || 0;
+        return dateA - dateB;
+      });
 
       setServiceStatuses(statuses);
     } catch (error) {
@@ -312,32 +332,55 @@ export default function HomeScreen() {
 
       <SectionHeader title="Your Services" />
       {serviceStatuses.length > 0 ? (
-        serviceStatuses.map((status) => (
-          <SummaryCard
-            key={status.reminder.id}
-            icon={status.isDue ? "bell" : "clock"}
-            title={status.reminder.name}
-            subtitle={
-              status.isDue
-                ? `Overdue - due ${status.nextDueDate ? formatDate(status.nextDueDate.toISOString()) : "now"} - tap to book`
-                : `Due ${status.nextDueDate ? formatDate(status.nextDueDate.toISOString()) : "soon"} - tap to book`
-            }
-            status={status.isDue ? "pending" : "active"}
-            onPress={() =>
-              navigation.navigate("BookService", {
-                preselectedJobDescriptionId: status.reminder.settingsjobdescriptionid,
-                serviceName: status.reminder.name,
-                serviceReminderId: status.reminder.id,
-              })
-            }
-            testID={status.isDue ? "card-service-due" : "card-service-upcoming"}
-          />
-        ))
+        serviceStatuses.map((status) => {
+          const isOverdue = status.isDue;
+          return (
+            <Pressable
+              key={status.reminder.id}
+              style={[
+                styles.serviceStatusCard,
+                { backgroundColor: theme.backgroundDefault },
+                isOverdue && { borderLeftWidth: 4, borderLeftColor: "#EF4444" },
+              ]}
+              onPress={() =>
+                navigation.navigate("BookService", {
+                  preselectedJobDescriptionId: status.reminder.settingsjobdescriptionid,
+                  serviceName: status.reminder.name,
+                  serviceReminderId: status.reminder.id,
+                })
+              }
+            >
+              <View style={{ flex: 1 }}>
+                <View style={{ flexDirection: "row", alignItems: "center", gap: Spacing.sm }}>
+                  <Feather name={isOverdue ? "alert-triangle" : "clock"} size={18} color={isOverdue ? "#EF4444" : theme.primary} />
+                  <ThemedText type="body" style={{ fontWeight: "600" }}>
+                    {status.reminder.name}
+                  </ThemedText>
+                </View>
+                {isOverdue ? (
+                  <View style={{ marginTop: Spacing.xs }}>
+                    <ThemedText type="small" style={{ color: "#EF4444", fontWeight: "700" }}>
+                      OVERDUE — WARRANTY AT RISK
+                    </ThemedText>
+                    <ThemedText type="small" style={{ color: theme.textSecondary, marginTop: 2 }}>
+                      {status.nextDueDate ? `Was due ${formatDate(status.nextDueDate.toISOString())}` : "Service needed"} — tap to book
+                    </ThemedText>
+                  </View>
+                ) : (
+                  <ThemedText type="small" style={{ color: theme.textSecondary, marginTop: Spacing.xs }}>
+                    Due {status.nextDueDate ? formatDate(status.nextDueDate.toISOString()) : "soon"} — tap to book
+                  </ThemedText>
+                )}
+              </View>
+              <Feather name="chevron-right" size={20} color={isOverdue ? "#EF4444" : theme.textSecondary} />
+            </Pressable>
+          );
+        })
       ) : (
         <SummaryCard
           icon="check-circle"
           title="All Services Up To Date"
-          subtitle="No services due in the next 4 weeks"
+          subtitle="No services due right now"
         />
       )}
 
@@ -505,6 +548,13 @@ const styles = StyleSheet.create({
   },
   propertySelector: {
     marginTop: Spacing.md,
+  },
+  serviceStatusCard: {
+    flexDirection: "row",
+    alignItems: "center",
+    padding: Spacing.lg,
+    borderRadius: 12,
+    marginBottom: Spacing.sm,
   },
   quickActions: {
     flexDirection: "row",
