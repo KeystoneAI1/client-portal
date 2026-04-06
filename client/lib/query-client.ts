@@ -13,16 +13,17 @@ export function getApiUrl(): string {
     return envUrl.endsWith("/") ? envUrl.slice(0, -1) : envUrl;
   }
 
-  // Fallback from app.json extra config
+  // Web: use same origin (API served from same server in production)
+  if (typeof window !== "undefined" && window.location?.origin) {
+    return window.location.origin;
+  }
+
+  // Native dev: use app.json extra config or localhost
   const extraUrl = Constants.expoConfig?.extra?.apiUrl;
   if (extraUrl) {
     return extraUrl.endsWith("/") ? extraUrl.slice(0, -1) : extraUrl;
   }
 
-  // Default: same origin for web (production), localhost for native dev
-  if (typeof window !== "undefined" && window.location?.origin) {
-    return window.location.origin;
-  }
   return "http://localhost:5000";
 }
 
