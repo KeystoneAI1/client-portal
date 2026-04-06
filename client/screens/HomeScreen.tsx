@@ -13,6 +13,7 @@ import { useNavigation } from "@react-navigation/native";
 import { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { useFocusEffect } from "@react-navigation/native";
 
+import { Feather } from "@expo/vector-icons";
 import { ThemedText } from "@/components/ThemedText";
 import { SectionHeader } from "@/components/SectionHeader";
 import { QuickActionCard } from "@/components/QuickActionCard";
@@ -57,66 +58,72 @@ export default function HomeScreen() {
   const [serviceStatuses, setServiceStatuses] = useState<ServiceStatus[]>([]);
 
   const loadServiceReminders = useCallback(async () => {
+    const customerId = user?.accountNumber || user?.id;
+    if (!customerId) return;
+
     try {
-      const response = await fetch(
+      // Load service reminders (system-level definitions)
+      const reminderResponse = await fetch(
         new URL("/api/commusoft/servicereminders", getApiUrl()).toString()
       );
-      if (response.ok) {
-        const data = await response.json();
-        const allReminders: ServiceReminder[] = data.servicereminders || [];
-        
-        // Show customer's relevant service reminders: Boiler and AC
-        const boilerService = allReminders.find(
-          (r) => r.name === "Boiler Service - Natural Gas" || 
-                 (r.name.toLowerCase().includes("boiler service") && 
-                  r.name.toLowerCase().includes("natural gas"))
-        );
-        
-        const acService = allReminders.find(
-          (r) => r.name === "Domestic AC Service" ||
-                 r.name.toLowerCase().includes("ac service")
-        );
-        
-        const now = new Date();
-        const statuses: ServiceStatus[] = [];
-        
-        // Add AC service (overdue - last serviced 14 months ago)
-        if (acService) {
-          const lastService = new Date(now);
-          lastService.setMonth(lastService.getMonth() - 14);
-          const nextDue = new Date(lastService);
-          nextDue.setMonth(nextDue.getMonth() + 12);
-          
-          statuses.push({
-            reminder: acService,
-            isDue: true, // Overdue
-            nextDueDate: nextDue,
-            lastServiceDate: lastService,
-          });
-        }
-        
-        // Add Boiler service (upcoming)
-        if (boilerService) {
-          const intervalMonths = boilerService.serviceperiod || 12;
-          const lastService = new Date(now);
-          lastService.setMonth(lastService.getMonth() - 10);
-          const nextDue = new Date(lastService);
-          nextDue.setMonth(nextDue.getMonth() + intervalMonths);
-          
-          statuses.push({
-            reminder: boilerService,
-            isDue: nextDue <= new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000),
-            nextDueDate: nextDue,
-            lastServiceDate: lastService,
-          });
-        }
-        
-        setServiceStatuses(statuses);
+      if (!reminderResponse.ok) return;
+
+      const reminderData = await reminderResponse.json();
+      const allReminders: ServiceReminder[] = reminderData.servicereminders || [];
+
+      // Load customer's jobs to find last service dates
+      const jobsResponse = await fetch(
+        new URL(`/api/commusoft/customer/${customerId}/jobs`, getApiUrl()).toString()
+      );
+      const completedJobs: any[] = [];
+      if (jobsResponse.ok) {
+        const jobsData = await jobsResponse.json();
+        const jobs = jobsData.Jobs || jobsData.jobs || [];
+        completedJobs.push(...jobs.filter((j: any) => j.status === "completed" && j.isservicejob));
       }
+
+      const now = new Date();
+      const statuses: ServiceStatus[] = [];
+
+      // Match reminders to customer's service history
+      for (const reminder of allReminders) {
+        // Find the most recent completed job matching this reminder's job description
+        const matchingJobs = completedJobs
+          .filter((j: any) => String(j.jobdescriptionid) === String(reminder.settingsjobdescriptionid))
+          .sort((a: any, b: any) => {
+            const dateA = new Date(a.completeddate || a.createdondatetime || 0);
+            const dateB = new Date(b.completeddate || b.createdondatetime || 0);
+            return dateB.getTime() - dateA.getTime();
+          });
+
+        if (matchingJobs.length > 0) {
+          const lastJob = matchingJobs[0];
+          const lastServiceDate = new Date(lastJob.completeddate || lastJob.createdondatetime);
+          const intervalMonths = reminder.serviceperiod || 12;
+          const nextDueDate = new Date(lastServiceDate);
+          nextDueDate.setMonth(nextDueDate.getMonth() + intervalMonths);
+
+          // Show if due within 4 weeks or overdue
+          const fourWeeksFromNow = new Date(now.getTime() + 28 * 24 * 60 * 60 * 1000);
+          const isDue = nextDueDate <= fourWeeksFromNow;
+          const isOverdue = nextDueDate < now;
+
+          if (isDue || isOverdue) {
+            statuses.push({
+              reminder,
+              isDue: isOverdue,
+              nextDueDate,
+              lastServiceDate,
+            });
+          }
+        }
+      }
+
+      setServiceStatuses(statuses);
     } catch (error) {
       console.error("Failed to load service reminders:", error);
     }
-  }, []);
+  }, [user, selectedProperty]);
 
   const loadData = useCallback(async () => {
     const customerId = user?.accountNumber || user?.id;
@@ -312,19 +319,16 @@ export default function HomeScreen() {
             title={status.reminder.name}
             subtitle={
               status.isDue
-                ? `Due ${status.nextDueDate ? formatDate(status.nextDueDate.toISOString()) : "now"} - tap to book`
-                : `Next due: ${status.nextDueDate ? formatDate(status.nextDueDate.toISOString()) : "Not scheduled"}`
+                ? `Overdue - due ${status.nextDueDate ? formatDate(status.nextDueDate.toISOString()) : "now"} - tap to book`
+                : `Due ${status.nextDueDate ? formatDate(status.nextDueDate.toISOString()) : "soon"} - tap to book`
             }
             status={status.isDue ? "pending" : "active"}
-            onPress={
-              status.isDue
-                ? () =>
-                    navigation.navigate("BookService", {
-                      preselectedJobDescriptionId: status.reminder.settingsjobdescriptionid,
-                      serviceName: status.reminder.name,
-                      serviceReminderId: status.reminder.id,
-                    })
-                : undefined
+            onPress={() =>
+              navigation.navigate("BookService", {
+                preselectedJobDescriptionId: status.reminder.settingsjobdescriptionid,
+                serviceName: status.reminder.name,
+                serviceReminderId: status.reminder.id,
+              })
             }
             testID={status.isDue ? "card-service-due" : "card-service-upcoming"}
           />
@@ -332,8 +336,8 @@ export default function HomeScreen() {
       ) : (
         <SummaryCard
           icon="check-circle"
-          title="No Services Scheduled"
-          subtitle="Your services are up to date"
+          title="All Services Up To Date"
+          subtitle="No services due in the next 4 weeks"
         />
       )}
 
@@ -342,11 +346,10 @@ export default function HomeScreen() {
         <QuickActionCard
           icon="calendar"
           title="Book Service"
-          subtitle={serviceStatuses.some((s) => s.isDue) ? "Schedule" : "No services due"}
+          subtitle="Schedule"
           color={theme.accent}
           onPress={() => navigation.navigate("BookService", {})}
           testID="action-book-service"
-          disabled={!serviceStatuses.some((s) => s.isDue)}
         />
         <View style={styles.quickActionSpacer} />
         <QuickActionCard
@@ -431,6 +434,42 @@ export default function HomeScreen() {
           />
         </>
       ) : null}
+
+      <SectionHeader title="Explore Our Services" />
+      <View style={styles.promoGrid}>
+        {[
+          { icon: "sun" as const, title: "Solar PV", subtitle: "Cut your energy bills by up to 70%", color: "#F59E0B" },
+          { icon: "battery-charging" as const, title: "EV Chargers", subtitle: "OZEV approved installation", color: "#10B981" },
+          { icon: "thermometer" as const, title: "Heat Pumps", subtitle: "MCS certified, grant eligible", color: "#3B82F6" },
+          { icon: "battery" as const, title: "Battery Storage", subtitle: "Store solar energy for later", color: "#8B5CF6" },
+        ].map((promo) => (
+          <Pressable
+            key={promo.title}
+            style={[styles.promoCard, { backgroundColor: theme.backgroundDefault }]}
+            onPress={() => navigation.navigate("BookService", {})}
+          >
+            <View style={[styles.promoIcon, { backgroundColor: promo.color + "20" }]}>
+              <Feather name={promo.icon} size={22} color={promo.color} />
+            </View>
+            <ThemedText type="small" style={{ fontWeight: "600", marginTop: Spacing.sm }}>
+              {promo.title}
+            </ThemedText>
+            <ThemedText type="small" style={{ color: theme.textSecondary, fontSize: 11, marginTop: 2 }}>
+              {promo.subtitle}
+            </ThemedText>
+          </Pressable>
+        ))}
+      </View>
+
+      <View style={[styles.referralBanner, { backgroundColor: theme.primary + "10", borderColor: theme.primary + "30" }]}>
+        <Feather name="gift" size={24} color={theme.primary} />
+        <View style={{ flex: 1, marginLeft: Spacing.md }}>
+          <ThemedText type="body" style={{ fontWeight: "600" }}>Refer a Friend</ThemedText>
+          <ThemedText type="small" style={{ color: theme.textSecondary }}>
+            Recommend us and you both get £100 off your next service
+          </ThemedText>
+        </View>
+      </View>
       </ScrollView>
     </View>
   );
@@ -472,5 +511,32 @@ const styles = StyleSheet.create({
   },
   quickActionSpacer: {
     width: Spacing.md,
+  },
+  promoGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: Spacing.sm,
+    marginBottom: Spacing.lg,
+  },
+  promoCard: {
+    width: "48%" as any,
+    padding: Spacing.md,
+    borderRadius: 12,
+    alignItems: "center",
+  },
+  promoIcon: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  referralBanner: {
+    flexDirection: "row",
+    alignItems: "center",
+    padding: Spacing.lg,
+    borderRadius: 12,
+    borderWidth: 1,
+    marginBottom: Spacing.lg,
   },
 });
