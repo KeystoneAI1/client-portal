@@ -228,7 +228,7 @@ export default function HomeScreen() {
       (i) => i.status === "pending" || i.status === "overdue",
     );
     setPendingInvoices(pending);
-  }, [user]);
+  }, [user, selectedProperty]);
 
   useFocusEffect(
     useCallback(() => {

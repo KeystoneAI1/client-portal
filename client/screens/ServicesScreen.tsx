@@ -13,6 +13,7 @@ import { StatusBadge } from "@/components/StatusBadge";
 import { EmptyState } from "@/components/EmptyState";
 import { useTheme } from "@/hooks/useTheme";
 import { useAuth } from "@/hooks/useAuth";
+import { useProperty } from "@/lib/propertyContext";
 import { Spacing, BorderRadius } from "@/constants/theme";
 import {
   storage,
@@ -38,6 +39,7 @@ export default function ServicesScreen() {
   const tabBarHeight = useBottomTabBarHeight();
   const { theme } = useTheme();
   const { user } = useAuth();
+  const { selectedProperty } = useProperty();
   const navigation = useNavigation<NavigationProp>();
 
   const [refreshing, setRefreshing] = useState(false);
@@ -121,7 +123,7 @@ export default function ServicesScreen() {
     ];
 
     setSections(newSections);
-  }, [user]);
+  }, [user, selectedProperty]);
 
   useFocusEffect(
     useCallback(() => {
