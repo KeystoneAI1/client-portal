@@ -217,6 +217,7 @@ export default function BookServiceScreen() {
             jobdescriptionid: jobDescriptionId,
             duration: duration,
             propertyid: propertyId,
+            customerid: user?.accountNumber,
             dateRange: 28,
           }),
         }
@@ -499,10 +500,10 @@ export default function BookServiceScreen() {
                 <Feather name="alert-circle" size={32} color={theme.error} />
               </View>
               <ThemedText type="body" style={{ textAlign: "center", marginTop: Spacing.md, fontWeight: "600" }}>
-                Unable to book appointment right now
+                No availability online
               </ThemedText>
               <ThemedText type="small" style={{ color: theme.textSecondary, textAlign: "center", marginTop: Spacing.sm }}>
-                Please click the Call button to book your appointment
+                No appointments available in the next 4 weeks for this service. Please call us and we'll arrange a time that works for you.
               </ThemedText>
               <Pressable
                 style={[styles.callButton, { backgroundColor: theme.success }]}

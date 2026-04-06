@@ -382,22 +382,41 @@ export async function getEngineerIds(): Promise<string> {
 
 export async function getSuggestedAppointments(data: {
   propertyid?: string | number;
+  customerid?: string | number;
   jobdescriptionid: number;
   duration: number;
   dateRange?: number;
 }): Promise<any> {
   const engineerIds = await getEngineerIds();
 
+  // Property is required by the Commusoft API - look it up if not provided
+  let propertyId = data.propertyid ? Number(data.propertyid) : null;
+
+  if (!propertyId && data.customerid) {
+    try {
+      const customerData: any = await getCustomer(String(data.customerid));
+      const customer = customerData?.Customer || customerData;
+      propertyId = customer?.invoiceAddressId || customer?.id || null;
+      if (propertyId) {
+        console.log(`[CommusoftClient] Resolved property ID ${propertyId} from customer ${data.customerid}`);
+      }
+    } catch {
+      console.log(`[CommusoftClient] Could not resolve property ID for customer ${data.customerid}`);
+    }
+  }
+
+  if (!propertyId) {
+    console.log(`[CommusoftClient] No property ID available — suggested appointments requires property`);
+    return { status: 200, appointments: [], api_unavailable: false, no_property: true };
+  }
+
   const body: Record<string, any> = {
     engineers: engineerIds,
     job_description: data.jobdescriptionid,
     length_of_event: data.duration,
-    date_range: data.dateRange || 14,
+    date_range: data.dateRange || 28,
+    property: propertyId,
   };
-
-  if (data.propertyid) {
-    body.property = Number(data.propertyid);
-  }
 
   console.log(`[CommusoftClient] Suggested appointments request:`, JSON.stringify(body));
 
@@ -731,7 +750,7 @@ export function registerCommusoftRoutes(app: any) {
       if (!isCommusoftConfigured()) {
         return res.status(503).json({ error: "Commusoft API not configured" });
       }
-      const { jobdescriptionid, duration, propertyid, dateRange } = req.body;
+      const { jobdescriptionid, duration, propertyid, customerid, dateRange } = req.body;
       if (!jobdescriptionid) {
         return res.status(400).json({ error: "Missing required field: jobdescriptionid" });
       }
@@ -739,7 +758,8 @@ export function registerCommusoftRoutes(app: any) {
         jobdescriptionid,
         duration: duration || 60,
         propertyid,
-        dateRange: dateRange || 14,
+        customerid,
+        dateRange: dateRange || 28,
       });
       res.json(data);
     } catch (error) {
