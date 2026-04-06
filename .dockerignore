@@ -1,0 +1,13 @@
+node_modules
+.expo
+.local
+client
+assets
+*.md
+.git
+.gitignore
+eas.json
+app.json
+babel.config.js
+eslint.config.js
+drizzle.config.ts

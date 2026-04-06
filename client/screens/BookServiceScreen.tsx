@@ -36,8 +36,9 @@ interface SuggestedAppointment {
   date: string;
   starttime: string;
   endtime: string;
+  availableTime: string;
   engineerid: number;
-  engineername?: string;
+  serviceWindowName?: string;
 }
 
 type BookServiceRouteProp = RouteProp<RootStackParamList, "BookService">;
@@ -73,62 +74,70 @@ export default function BookServiceScreen() {
     loadServiceForBooking();
   }, [preselectedId]);
 
-  const fetchAppointmentsWithRetry = async (postcode: string, jobDescriptionId: number, propertyId: string | undefined, maxRetries: number = 3): Promise<SuggestedAppointment[] | null> => {
-    // Get customer ID from user context
-    const customerId = user?.accountNumber;
-    
-    for (let attempt = 1; attempt <= maxRetries; attempt++) {
-      try {
-        console.log(`Fetching appointments attempt ${attempt}/${maxRetries} with propertyId: ${propertyId}, customerId: ${customerId}`);
-        const appointmentsResponse = await fetch(
-          new URL("/api/commusoft/suggested-appointments", getApiUrl()).toString(),
-          {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              postcode: postcode,
-              jobdescriptionid: jobDescriptionId,
-              duration: 60,
-              propertyid: propertyId,
-              customerid: customerId,
-            }),
-          }
-        );
-        
-        if (appointmentsResponse.ok) {
-          const appointmentsData = await appointmentsResponse.json();
-          console.log(`Attempt ${attempt}: API response:`, JSON.stringify(appointmentsData).substring(0, 200));
-          
-          // Handle multiple response formats
-          let slots = appointmentsData.suggestedappointment || 
-                      appointmentsData.suggested_appointments || 
-                      appointmentsData.appointments || 
-                      [];
-          
-          // Normalize slot format if needed (backend returns start_time/end_time, we need starttime/endtime)
-          slots = slots.map((slot: any) => ({
-            date: slot.date,
-            starttime: slot.starttime || slot.start_time || "09:00",
-            endtime: slot.endtime || slot.end_time || "17:00",
-          }));
-          
-          if (slots.length > 0) {
-            console.log(`Attempt ${attempt}: Got ${slots.length} slots`);
-            return slots.slice(0, 5);
-          }
-          console.log(`Attempt ${attempt}: No slots returned`);
-        } else {
-          console.log(`Attempt ${attempt}: API returned error status ${appointmentsResponse.status}`);
+  const fetchAppointments = async (jobDescriptionId: number, duration: number, propertyId: string | undefined): Promise<SuggestedAppointment[] | null> => {
+    try {
+      console.log(`Fetching appointments for job ${jobDescriptionId}, duration ${duration}min, property ${propertyId}`);
+      const appointmentsResponse = await fetch(
+        new URL("/api/commusoft/suggested-appointments", getApiUrl()).toString(),
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            jobdescriptionid: jobDescriptionId,
+            duration: duration,
+            propertyid: propertyId,
+            dateRange: 28,
+          }),
         }
-      } catch (error) {
-        console.error(`Attempt ${attempt} failed:`, error);
+      );
+
+      if (!appointmentsResponse.ok) {
+        console.log(`API returned error status ${appointmentsResponse.status}`);
+        return null;
       }
-      
-      if (attempt < maxRetries) {
-        await new Promise(resolve => setTimeout(resolve, 1000));
+
+      const data = await appointmentsResponse.json();
+      console.log(`API response status: ${data.status}, appointment dates: ${Object.keys(data.appointments || {}).length}`);
+
+      // Parse Commusoft response: { status: 200, appointments: { "date": [slots] } }
+      const appointments = data.appointments || {};
+      const slots: SuggestedAppointment[] = [];
+
+      for (const [dateKey, dateSlots] of Object.entries(appointments)) {
+        const slotsArray = dateSlots as any[];
+        if (!slotsArray || slotsArray.length === 0) continue;
+
+        for (const slot of slotsArray) {
+          // Parse availableTime "12:30 - 13:15" into start/end
+          const availableTime = slot.availableTime || "";
+          const [startStr, endStr] = availableTime.split(" - ").map((s: string) => s.trim());
+          if (!startStr || !endStr) continue;
+
+          // Extract just the date part (YYYY-MM-DD) from the key
+          const datePart = dateKey.split(" ")[0];
+
+          slots.push({
+            date: datePart,
+            starttime: startStr,
+            endtime: endStr,
+            availableTime: availableTime,
+            engineerid: slot.engineerId,
+            serviceWindowName: slot.serviceWindowName,
+          });
+        }
       }
+
+      if (slots.length > 0) {
+        console.log(`Got ${slots.length} appointment slots`);
+        return slots.slice(0, 10);
+      }
+
+      console.log("No appointment slots available");
+      return null;
+    } catch (error) {
+      console.error("Failed to fetch appointments:", error);
+      return null;
     }
-    return null;
   };
 
   const loadServiceForBooking = async () => {
@@ -179,17 +188,11 @@ export default function BookServiceScreen() {
         if (matchedJob) {
           setSelectedJob(matchedJob);
           
-          const postcode = selectedProperty?.postcode || "";
-          if (postcode) {
-            const slots = await fetchAppointmentsWithRetry(postcode, matchedJob.id, selectedProperty?.id, 3);
-            if (slots && slots.length > 0) {
-              setSuggestedAppointments(slots);
-            } else {
-              console.log("All retry attempts failed, showing error state");
-              setAppointmentApiError(true);
-              setSuggestedAppointments([]);
-            }
+          const slots = await fetchAppointments(matchedJob.id, matchedJob.timetocomplete, selectedProperty?.id);
+          if (slots && slots.length > 0) {
+            setSuggestedAppointments(slots);
           } else {
+            console.log("No appointment slots available, showing error state");
             setAppointmentApiError(true);
             setSuggestedAppointments([]);
           }
@@ -440,8 +443,13 @@ export default function BookServiceScreen() {
                         {formatAppointmentDate(apt.date)}
                       </ThemedText>
                       <ThemedText type="small" style={{ color: theme.textSecondary }}>
-                        {formatAppointmentTime(apt.starttime, apt.endtime)}
+                        {apt.availableTime || formatAppointmentTime(apt.starttime, apt.endtime)}
                       </ThemedText>
+                      {apt.serviceWindowName ? (
+                        <ThemedText type="small" style={{ color: theme.textSecondary, fontSize: 10, marginTop: 2 }}>
+                          {apt.serviceWindowName}
+                        </ThemedText>
+                      ) : null}
                       {isSelected ? (
                         <Feather name="check-circle" size={18} color={theme.primary} style={{ marginTop: Spacing.sm }} />
                       ) : null}

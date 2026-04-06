@@ -1,19 +1,29 @@
 import { QueryClient, QueryFunction } from "@tanstack/react-query";
+import Constants from "expo-constants";
 
 /**
- * Gets the base URL for the Express API server (e.g., "http://localhost:3000")
- * @returns {string} The API base URL
+ * Gets the base URL for the Express API server.
+ * Uses EXPO_PUBLIC_API_URL env var, or falls back to app.json extra config,
+ * then localhost for development.
  */
 export function getApiUrl(): string {
-  let host = process.env.EXPO_PUBLIC_DOMAIN;
-
-  if (!host) {
-    throw new Error("EXPO_PUBLIC_DOMAIN is not set");
+  // Expo public env vars (set via EXPO_PUBLIC_API_URL)
+  const envUrl = process.env.EXPO_PUBLIC_API_URL;
+  if (envUrl) {
+    return envUrl.endsWith("/") ? envUrl.slice(0, -1) : envUrl;
   }
 
-  let url = new URL(`https://${host}`);
+  // Fallback from app.json extra config
+  const extraUrl = Constants.expoConfig?.extra?.apiUrl;
+  if (extraUrl) {
+    return extraUrl.endsWith("/") ? extraUrl.slice(0, -1) : extraUrl;
+  }
 
-  return url.href;
+  // Default: same origin for web (production), localhost for native dev
+  if (typeof window !== "undefined" && window.location?.origin) {
+    return window.location.origin;
+  }
+  return "http://localhost:5000";
 }
 
 async function throwIfResNotOk(res: Response) {
