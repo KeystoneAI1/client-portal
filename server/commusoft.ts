@@ -264,6 +264,12 @@ export async function getInvoices(customerId: string) {
   }
 }
 
+export async function getPropertyServiceReminders(customerId: string) {
+  return commusoftRequest({
+    endpoint: `/api/v1/customers/${customerId}/propertyservicereminders`,
+  });
+}
+
 export async function getInvoice(customerId: string, jobId: string, invoiceId: string) {
   return commusoftRequest({
     endpoint: `/api/v1/customers/${customerId}/jobs/${jobId}/invoices/${invoiceId}`,
@@ -725,6 +731,19 @@ export function registerCommusoftRoutes(app: any) {
     } catch (error) {
       console.error("Failed to get service reminders:", error);
       res.status(500).json({ error: "Failed to fetch service reminders" });
+    }
+  });
+
+  app.get("/api/commusoft/customer/:customerId/propertyservicereminders", async (req: Request, res: Response) => {
+    try {
+      if (!isCommusoftConfigured()) {
+        return res.status(503).json({ error: "Commusoft API not configured" });
+      }
+      const data = await getPropertyServiceReminders(req.params.customerId);
+      res.json(data);
+    } catch (error) {
+      console.error("Failed to get property service reminders:", error);
+      res.status(500).json({ error: "Failed to fetch property service reminders" });
     }
   });
 

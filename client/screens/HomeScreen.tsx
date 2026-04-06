@@ -62,70 +62,45 @@ export default function HomeScreen() {
     if (!customerId) return;
 
     try {
-      // Load service reminders and customer's jobs
-      const [reminderResponse, jobsResponse, contractsResponse] = await Promise.all([
+      // Load customer's actual property service reminders from Commusoft
+      const [propertyRemindersResponse, systemRemindersResponse] = await Promise.all([
+        fetch(new URL(`/api/commusoft/customer/${customerId}/propertyservicereminders`, getApiUrl()).toString()),
         fetch(new URL("/api/commusoft/servicereminders", getApiUrl()).toString()),
-        fetch(new URL(`/api/commusoft/customer/${customerId}/jobs`, getApiUrl()).toString()),
-        fetch(new URL(`/api/commusoft/customer/${customerId}/contracts`, getApiUrl()).toString()).catch(() => null),
       ]);
-
-      if (!reminderResponse.ok) return;
-      const allReminders: ServiceReminder[] = (await reminderResponse.json()).servicereminders || [];
-
-      const allJobs: any[] = [];
-      if (jobsResponse.ok) {
-        const jobsData = await jobsResponse.json();
-        allJobs.push(...(jobsData.Jobs || jobsData.jobs || []));
-      }
-
-      // Get contracts/service plans to know what services the customer has
-      let contracts: any[] = [];
-      if (contractsResponse?.ok) {
-        const contractData = await contractsResponse.json();
-        contracts = contractData.contracts || contractData.Contracts || [];
-      }
 
       const now = new Date();
       const statuses: ServiceStatus[] = [];
 
-      for (const reminder of allReminders) {
-        const jobDescId = String(reminder.settingsjobdescriptionid);
+      // Try property-specific reminders first (real customer data)
+      if (propertyRemindersResponse.ok) {
+        const propData = await propertyRemindersResponse.json();
+        const propReminders = propData.servicereminder || [];
 
-        // Find completed service jobs for this reminder
-        const matchingJobs = allJobs
-          .filter((j: any) => String(j.jobdescriptionid) === jobDescId && j.status === "completed")
-          .sort((a: any, b: any) => {
-            const dateA = new Date(a.completeddate || a.createdondatetime || 0);
-            const dateB = new Date(b.completeddate || b.createdondatetime || 0);
-            return dateB.getTime() - dateA.getTime();
-          });
+        // Get system reminders for job description mapping
+        let systemReminders: ServiceReminder[] = [];
+        if (systemRemindersResponse.ok) {
+          systemReminders = (await systemRemindersResponse.json()).servicereminders || [];
+        }
 
-        // Also check if customer has any job (completed or not) for this service type
-        const anyMatchingJob = allJobs.some((j: any) => String(j.jobdescriptionid) === jobDescId);
+        for (const pr of propReminders) {
+          const dueDate = pr.duedate ? new Date(pr.duedate) : null;
+          const reminderDate = pr.reminderdate ? new Date(pr.reminderdate) : null;
+          const isOverdue = dueDate ? dueDate < now : false;
+          const status = pr.status || "";
 
-        if (matchingJobs.length > 0) {
-          // Has service history — calculate next due date
-          const lastJob = matchingJobs[0];
-          const lastServiceDate = new Date(lastJob.completeddate || lastJob.createdondatetime);
-          const intervalMonths = reminder.serviceperiod || 12;
-          const nextDueDate = new Date(lastServiceDate);
-          nextDueDate.setMonth(nextDueDate.getMonth() + intervalMonths);
-
-          const isOverdue = nextDueDate < now;
+          // Find matching system reminder for job description ID
+          const matchingSystemReminder = systemReminders.find((sr: ServiceReminder) => sr.id === pr.settingsserviceremindersid);
 
           statuses.push({
-            reminder,
-            isDue: isOverdue,
-            nextDueDate,
-            lastServiceDate,
-          });
-        } else if (anyMatchingJob || contracts.length > 0) {
-          // Has related jobs or contracts but no completed service — show as needing attention
-          statuses.push({
-            reminder,
-            isDue: true,
-            nextDueDate: null,
-            lastServiceDate: null,
+            reminder: {
+              id: pr.id,
+              name: matchingSystemReminder?.name || pr.description || "Service",
+              settingsjobdescriptionid: matchingSystemReminder?.settingsjobdescriptionid || 0,
+              serviceperiod: matchingSystemReminder?.serviceperiod || 12,
+            },
+            isDue: isOverdue || status === "due_not_booked",
+            nextDueDate: dueDate,
+            lastServiceDate: reminderDate,
           });
         }
       }
