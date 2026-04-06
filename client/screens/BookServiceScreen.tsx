@@ -5,6 +5,7 @@ import {
   Pressable,
   ActivityIndicator,
   Linking,
+  FlatList,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useHeaderHeight } from "@react-navigation/elements";
@@ -41,6 +42,12 @@ interface SuggestedAppointment {
   serviceWindowName?: string;
 }
 
+interface ServiceCategory {
+  name: string;
+  icon: keyof typeof Feather.glyphMap;
+  services: JobDescription[];
+}
+
 type BookServiceRouteProp = RouteProp<RootStackParamList, "BookService">;
 
 export default function BookServiceScreen() {
@@ -56,6 +63,9 @@ export default function BookServiceScreen() {
   const serviceName = route.params?.serviceName;
   const serviceReminderId = route.params?.serviceReminderId;
 
+  const [step, setStep] = useState<"select" | "appointments" | "confirm">(preselectedId ? "appointments" : "select");
+  const [allServices, setAllServices] = useState<JobDescription[]>([]);
+  const [categories, setCategories] = useState<ServiceCategory[]>([]);
   const [selectedJob, setSelectedJob] = useState<JobDescription | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [notes, setNotes] = useState("");
@@ -63,6 +73,7 @@ export default function BookServiceScreen() {
   const [suggestedAppointments, setSuggestedAppointments] = useState<SuggestedAppointment[]>([]);
   const [selectedAppointment, setSelectedAppointment] = useState<SuggestedAppointment | null>(null);
   const [appointmentApiError, setAppointmentApiError] = useState(false);
+  const [bookingSuccess, setBookingSuccess] = useState(false);
 
   const SUPPORT_PHONE = "+441925234450";
 
@@ -70,13 +81,133 @@ export default function BookServiceScreen() {
     Linking.openURL(`tel:${SUPPORT_PHONE}`);
   };
 
+  const getServiceIcon = (description: string): keyof typeof Feather.glyphMap => {
+    const lower = description.toLowerCase();
+    if (lower.includes("solar") || lower.includes("pv")) return "sun";
+    if (lower.includes("ev") || lower.includes("charger")) return "battery-charging";
+    if (lower.includes("heat pump") || lower.includes("ashp")) return "thermometer";
+    if (lower.includes("battery") || lower.includes("storage")) return "battery";
+    if (lower.includes("boiler") || lower.includes("heating")) return "thermometer";
+    if (lower.includes("gas") || lower.includes("gsc") || lower.includes("cp12")) return "wind";
+    if (lower.includes("electric") || lower.includes("eicr")) return "zap";
+    if (lower.includes("plumb")) return "droplet";
+    if (lower.includes("air con") || lower.includes("ac ") || lower.includes("mvhr")) return "wind";
+    if (lower.includes("cylinder")) return "disc";
+    if (lower.includes("fire")) return "alert-triangle";
+    if (lower.includes("diagnostic")) return "search";
+    if (lower.includes("pat")) return "check-square";
+    if (lower.includes("powerflush")) return "refresh-cw";
+    if (lower.includes("quotation") || lower.includes("quote")) return "file-text";
+    return "tool";
+  };
+
+  const getCategoryName = (description: string): string => {
+    const lower = description.toLowerCase();
+    if (lower.includes("solar") || lower.includes("pv")) return "Solar PV";
+    if (lower.includes("ev") || lower.includes("charger")) return "EV Chargers";
+    if (lower.includes("heat pump") || lower.includes("ashp")) return "Heat Pumps";
+    if (lower.includes("battery") || lower.includes("storage")) return "Battery Storage";
+    if (lower.includes("air con") || lower.includes("ac ") || lower.includes("mvhr")) return "Air Conditioning";
+    if (lower.includes("eicr") || lower.includes("electrical installation")) return "Electrical";
+    if (lower.includes("pat")) return "Electrical";
+    if (lower.includes("boiler") && lower.includes("service")) return "Boiler Servicing";
+    if (lower.includes("boiler") && lower.includes("diagnostic")) return "Diagnostics";
+    if (lower.includes("gas") || lower.includes("gsc") || lower.includes("cp12")) return "Gas Safety";
+    if (lower.includes("fire")) return "Fire Safety";
+    if (lower.includes("cylinder")) return "Cylinder Servicing";
+    if (lower.includes("powerflush")) return "Powerflush";
+    if (lower.includes("plumb")) return "Plumbing";
+    if (lower.includes("diagnostic")) return "Diagnostics";
+    if (lower.includes("quotation") || lower.includes("quote")) return "Quotations";
+    if (lower.includes("commercial")) return "Commercial";
+    return "Other";
+  };
+
   useEffect(() => {
-    loadServiceForBooking();
-  }, [preselectedId]);
+    loadServices();
+  }, []);
+
+  const loadServices = async () => {
+    setIsLoading(true);
+    try {
+      const response = await fetch(
+        new URL("/api/commusoft/jobdescriptions", getApiUrl()).toString()
+      );
+      if (response.ok) {
+        const data = await response.json();
+        const descriptions: JobDescription[] = (data.jobdescription || [])
+          .filter((jd: JobDescription) => jd.appearinwebbooking || jd.appearincustomerlogin);
+
+        setAllServices(descriptions);
+
+        // Group into categories
+        const categoryMap = new Map<string, JobDescription[]>();
+        descriptions.forEach((jd) => {
+          const cat = getCategoryName(jd.description);
+          if (!categoryMap.has(cat)) categoryMap.set(cat, []);
+          categoryMap.get(cat)!.push(jd);
+        });
+
+        const cats: ServiceCategory[] = Array.from(categoryMap.entries()).map(([name, services]) => ({
+          name,
+          icon: getServiceIcon(services[0].description),
+          services,
+        }));
+        setCategories(cats);
+
+        // If preselected, find and select it
+        if (preselectedId) {
+          const matched = descriptions.find((jd) => jd.id === preselectedId);
+          if (matched) {
+            setSelectedJob(matched);
+            await loadAppointments(matched);
+            return;
+          }
+        }
+
+        // If service name provided, try to match
+        if (serviceName) {
+          const matched = descriptions.find((jd) =>
+            jd.description.toLowerCase().includes(serviceName.toLowerCase()) ||
+            serviceName.toLowerCase().includes(jd.description.toLowerCase())
+          );
+          if (matched) {
+            setSelectedJob(matched);
+            await loadAppointments(matched);
+            return;
+          }
+        }
+      }
+    } catch (error) {
+      console.error("Failed to load services:", error);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const loadAppointments = async (job: JobDescription) => {
+    setStep("appointments");
+    setIsLoading(true);
+    setAppointmentApiError(false);
+    setSuggestedAppointments([]);
+    setSelectedAppointment(null);
+
+    try {
+      const slots = await fetchAppointments(job.id, job.timetocomplete, selectedProperty?.id);
+      if (slots && slots.length > 0) {
+        setSuggestedAppointments(slots);
+      } else {
+        setAppointmentApiError(true);
+      }
+    } catch {
+      setAppointmentApiError(true);
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
   const fetchAppointments = async (jobDescriptionId: number, duration: number, propertyId: string | undefined): Promise<SuggestedAppointment[] | null> => {
     try {
-      console.log(`Fetching appointments for job ${jobDescriptionId}, duration ${duration}min, property ${propertyId}`);
       const appointmentsResponse = await fetch(
         new URL("/api/commusoft/suggested-appointments", getApiUrl()).toString(),
         {
@@ -91,15 +222,9 @@ export default function BookServiceScreen() {
         }
       );
 
-      if (!appointmentsResponse.ok) {
-        console.log(`API returned error status ${appointmentsResponse.status}`);
-        return null;
-      }
+      if (!appointmentsResponse.ok) return null;
 
       const data = await appointmentsResponse.json();
-      console.log(`API response status: ${data.status}, appointment dates: ${Object.keys(data.appointments || {}).length}`);
-
-      // Parse Commusoft response: { status: 200, appointments: { "date": [slots] } }
       const appointments = data.appointments || {};
       const slots: SuggestedAppointment[] = [];
 
@@ -108,133 +233,54 @@ export default function BookServiceScreen() {
         if (!slotsArray || slotsArray.length === 0) continue;
 
         for (const slot of slotsArray) {
-          // Parse availableTime "12:30 - 13:15" into start/end
           const availableTime = slot.availableTime || "";
           const [startStr, endStr] = availableTime.split(" - ").map((s: string) => s.trim());
           if (!startStr || !endStr) continue;
 
-          // Extract just the date part (YYYY-MM-DD) from the key
           const datePart = dateKey.split(" ")[0];
 
           slots.push({
             date: datePart,
             starttime: startStr,
             endtime: endStr,
-            availableTime: availableTime,
+            availableTime,
             engineerid: slot.engineerId,
             serviceWindowName: slot.serviceWindowName,
           });
         }
       }
 
-      if (slots.length > 0) {
-        console.log(`Got ${slots.length} appointment slots`);
-        return slots.slice(0, 10);
-      }
-
-      console.log("No appointment slots available");
-      return null;
+      return slots.length > 0 ? slots.slice(0, 10) : null;
     } catch (error) {
       console.error("Failed to fetch appointments:", error);
       return null;
     }
   };
 
-  const loadServiceForBooking = async () => {
-    setIsLoading(true);
-    setAppointmentApiError(false);
-    try {
-      const response = await fetch(
-        new URL("/api/commusoft/jobdescriptions", getApiUrl()).toString()
-      );
-      if (response.ok) {
-        const data = await response.json();
-        const descriptions = data.jobdescription || [];
-        
-        let matchedJob: JobDescription | null = null;
-        
-        // First try to match by preselected ID
-        if (preselectedId) {
-          matchedJob = descriptions.find((jd: JobDescription) => jd.id === preselectedId) || null;
-        }
-        
-        // If no match by ID, try to match by service name
-        if (!matchedJob && serviceName) {
-          console.log("[BookService] Looking up job description by service name:", serviceName);
-          // Try exact match first
-          matchedJob = descriptions.find((jd: JobDescription) => 
-            jd.description.toLowerCase() === serviceName.toLowerCase()
-          ) || null;
-          
-          // Try partial match if no exact match
-          if (!matchedJob) {
-            // Extract key words from service name (e.g., "Domestic AC Service" -> "ac service")
-            const searchTerms = serviceName.toLowerCase()
-              .replace("domestic", "")
-              .replace("-", "")
-              .trim();
-            
-            matchedJob = descriptions.find((jd: JobDescription) => 
-              jd.description.toLowerCase().includes(searchTerms) ||
-              searchTerms.includes(jd.description.toLowerCase())
-            ) || null;
-          }
-          
-          if (matchedJob) {
-            console.log("[BookService] Found matching job description:", matchedJob.description, "ID:", matchedJob.id);
-          }
-        }
-        
-        if (matchedJob) {
-          setSelectedJob(matchedJob);
-          
-          const slots = await fetchAppointments(matchedJob.id, matchedJob.timetocomplete, selectedProperty?.id);
-          if (slots && slots.length > 0) {
-            setSuggestedAppointments(slots);
-          } else {
-            console.log("No appointment slots available, showing error state");
-            setAppointmentApiError(true);
-            setSuggestedAppointments([]);
-          }
-        } else {
-          console.log("[BookService] No matching job description found for:", serviceName, "ID:", preselectedId);
-          setAppointmentApiError(true);
-        }
-      }
-    } catch (error) {
-      console.error("Failed to load job descriptions:", error);
-    } finally {
-      setIsLoading(false);
-    }
+  const selectService = (job: JobDescription) => {
+    setSelectedJob(job);
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    loadAppointments(job);
   };
 
-
-  const [bookingSuccess, setBookingSuccess] = useState(false);
-
   const handleSubmit = async () => {
-    if (!selectedJob || !selectedAppointment) {
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
-      return;
-    }
+    if (!selectedJob || !selectedAppointment) return;
 
     setIsSubmitting(true);
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
 
     try {
       const accountNumber = user?.accountNumber;
-      if (!accountNumber) {
-        throw new Error("No account number");
-      }
+      if (!accountNumber) throw new Error("No account number");
 
       const startDateTime = `${selectedAppointment.date} ${selectedAppointment.starttime}:00`;
       const endDateTime = `${selectedAppointment.date} ${selectedAppointment.endtime}:00`;
-      
+
       const jobData = {
         job: {
           uuid: crypto.randomUUID(),
           description: selectedJob.description,
           isservicejob: true,
-          contactid: user?.contactId,
           startdatetime: startDateTime,
           enddatetime: endDateTime,
           engineernotes: notes.trim() || undefined,
@@ -243,7 +289,7 @@ export default function BookServiceScreen() {
         },
       };
 
-      const response = await fetch(
+      await fetch(
         new URL(`/api/commusoft/customer/${accountNumber}/jobs`, getApiUrl()).toString(),
         {
           method: "POST",
@@ -263,23 +309,7 @@ export default function BookServiceScreen() {
     }
   };
 
-  const getServiceIcon = (description: string): keyof typeof Feather.glyphMap => {
-    const lower = description.toLowerCase();
-    if (lower.includes("boiler") || lower.includes("heating")) return "thermometer";
-    if (lower.includes("gas")) return "wind";
-    if (lower.includes("electric") || lower.includes("eicr")) return "zap";
-    if (lower.includes("plumb")) return "droplet";
-    if (lower.includes("air con") || lower.includes("ac ")) return "wind";
-    if (lower.includes("cylinder")) return "disc";
-    if (lower.includes("fire")) return "sun";
-    if (lower.includes("diagnostic")) return "search";
-    if (lower.includes("pat")) return "check-square";
-    return "tool";
-  };
-
-  const formatPrice = (price: number) => {
-    return `£${price.toFixed(2)}`;
-  };
+  const formatPrice = (price: number) => price > 0 ? `£${price.toFixed(2)}` : "Free quote";
 
   const formatDuration = (minutes: number) => {
     if (minutes >= 60) {
@@ -292,11 +322,7 @@ export default function BookServiceScreen() {
 
   const formatAppointmentDate = (dateStr: string) => {
     const date = new Date(dateStr);
-    return date.toLocaleDateString("en-GB", {
-      weekday: "short",
-      day: "numeric",
-      month: "short",
-    });
+    return date.toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short" });
   };
 
   const formatAppointmentTime = (startTime: string, endTime: string) => {
@@ -310,7 +336,7 @@ export default function BookServiceScreen() {
     return `${formatTime(startTime)} - ${formatTime(endTime)}`;
   };
 
-  if (isLoading) {
+  if (isLoading && step === "select") {
     return (
       <View style={[styles.loadingContainer, { backgroundColor: theme.backgroundRoot }]}>
         <ActivityIndicator size="large" color={theme.primary} />
@@ -327,36 +353,105 @@ export default function BookServiceScreen() {
         <View style={[styles.successIcon, { backgroundColor: theme.success + "20" }]}>
           <Feather name="check-circle" size={64} color={theme.success} />
         </View>
-        <ThemedText type="title" style={{ marginTop: Spacing.xl, textAlign: "center" }}>
+        <ThemedText type="h3" style={{ marginTop: Spacing.xl, textAlign: "center" }}>
           Booking Confirmed
         </ThemedText>
         <ThemedText type="body" style={{ color: theme.textSecondary, marginTop: Spacing.md, textAlign: "center" }}>
-          Your {serviceName || selectedJob?.description} has been scheduled for{" "}
+          Your {selectedJob?.description} has been scheduled for{" "}
           {selectedAppointment ? formatAppointmentDate(selectedAppointment.date) : ""}
         </ThemedText>
         <ThemedText type="small" style={{ color: theme.textSecondary, marginTop: Spacing.lg, textAlign: "center" }}>
           We'll send you a confirmation shortly
         </ThemedText>
-        <Button
+        <Pressable
           onPress={() => navigation.goBack()}
-          style={{ marginTop: Spacing.xl, minWidth: 200 }}
-          testID="button-done"
+          style={[styles.doneButton, { backgroundColor: theme.primary }]}
         >
-          Done
-        </Button>
+          <ThemedText type="body" style={{ color: "#FFFFFF", fontWeight: "600" }}>Done</ThemedText>
+        </Pressable>
       </View>
     );
   }
 
+  // Step 1: Service picker
+  if (step === "select") {
+    return (
+      <KeyboardAwareScrollViewCompat
+        style={[styles.container, { backgroundColor: theme.backgroundRoot }]}
+        contentContainerStyle={{
+          paddingTop: headerHeight + Spacing.lg,
+          paddingBottom: insets.bottom + Spacing.xl,
+          paddingHorizontal: Spacing.lg,
+        }}
+      >
+        {selectedProperty ? (
+          <View style={[styles.propertyBanner, { backgroundColor: theme.backgroundDefault }]}>
+            <Feather name="map-pin" size={16} color={theme.primary} />
+            <ThemedText type="small" style={{ color: theme.text, marginLeft: Spacing.sm, flex: 1 }}>
+              {selectedProperty.addressLine1}, {selectedProperty.postcode}
+            </ThemedText>
+          </View>
+        ) : null}
+
+        <ThemedText type="h3" style={{ marginBottom: Spacing.lg }}>
+          What do you need?
+        </ThemedText>
+
+        {categories.map((cat) => (
+          <View key={cat.name} style={{ marginBottom: Spacing.lg }}>
+            <View style={styles.categoryHeader}>
+              <Feather name={cat.icon} size={18} color={theme.primary} />
+              <ThemedText type="body" style={{ fontWeight: "600", marginLeft: Spacing.sm }}>
+                {cat.name}
+              </ThemedText>
+            </View>
+            {cat.services.map((service) => (
+              <Pressable
+                key={service.id}
+                style={[styles.serviceRow, { backgroundColor: theme.backgroundDefault }, Shadows.small]}
+                onPress={() => selectService(service)}
+              >
+                <View style={{ flex: 1 }}>
+                  <ThemedText type="body" style={{ fontWeight: "500" }}>
+                    {service.description.replace("Domestic - ", "").replace("Domestic  -  ", "").replace("Commercial - ", "")}
+                  </ThemedText>
+                  <View style={{ flexDirection: "row", gap: Spacing.sm, marginTop: Spacing.xs }}>
+                    <ThemedText type="small" style={{ color: theme.textSecondary }}>
+                      {formatDuration(service.timetocomplete)}
+                    </ThemedText>
+                    <ThemedText type="small" style={{ color: theme.primary, fontWeight: "600" }}>
+                      {formatPrice(service.price)}
+                    </ThemedText>
+                  </View>
+                </View>
+                <Feather name="chevron-right" size={20} color={theme.textSecondary} />
+              </Pressable>
+            ))}
+          </View>
+        ))}
+      </KeyboardAwareScrollViewCompat>
+    );
+  }
+
+  // Step 2: Appointment selection
   return (
     <KeyboardAwareScrollViewCompat
       style={[styles.container, { backgroundColor: theme.backgroundRoot }]}
       contentContainerStyle={{
-        paddingTop: headerHeight + Spacing.xl,
+        paddingTop: headerHeight + Spacing.lg,
         paddingBottom: insets.bottom + Spacing.xl,
         paddingHorizontal: Spacing.lg,
       }}
     >
+      {!preselectedId ? (
+        <Pressable onPress={() => { setStep("select"); setSelectedJob(null); }} style={styles.backLink}>
+          <Feather name="arrow-left" size={16} color={theme.primary} />
+          <ThemedText type="small" style={{ color: theme.primary, marginLeft: Spacing.xs }}>
+            Change service
+          </ThemedText>
+        </Pressable>
+      ) : null}
+
       {selectedProperty ? (
         <View style={[styles.propertyBanner, { backgroundColor: theme.backgroundDefault }]}>
           <Feather name="map-pin" size={16} color={theme.primary} />
@@ -378,22 +473,27 @@ export default function BookServiceScreen() {
             </View>
             <View style={styles.serviceInfo}>
               <ThemedText type="body" style={{ fontWeight: "600" }}>
-                {serviceName || selectedJob.description}
+                {selectedJob.description}
               </ThemedText>
               <View style={styles.serviceMeta}>
                 <ThemedText type="small" style={{ color: theme.textSecondary }}>
                   {formatDuration(selectedJob.timetocomplete)}
                 </ThemedText>
-                <View style={[styles.priceBadge, { backgroundColor: theme.primaryLight }]}>
-                  <ThemedText type="small" style={{ color: theme.primary, fontWeight: "600" }}>
-                    {formatPrice(selectedJob.price)}
-                  </ThemedText>
-                </View>
+                <ThemedText type="small" style={{ color: theme.primary, fontWeight: "600" }}>
+                  {formatPrice(selectedJob.price)}
+                </ThemedText>
               </View>
             </View>
           </View>
 
-          {appointmentApiError ? (
+          {isLoading ? (
+            <View style={{ padding: Spacing.xl, alignItems: "center" }}>
+              <ActivityIndicator size="large" color={theme.primary} />
+              <ThemedText type="body" style={{ marginTop: Spacing.md, color: theme.textSecondary }}>
+                Finding available appointments...
+              </ThemedText>
+            </View>
+          ) : appointmentApiError ? (
             <View style={[styles.errorCard, { backgroundColor: theme.backgroundDefault }]}>
               <View style={[styles.errorIconContainer, { backgroundColor: theme.error + "20" }]}>
                 <Feather name="alert-circle" size={32} color={theme.error} />
@@ -407,7 +507,6 @@ export default function BookServiceScreen() {
               <Pressable
                 style={[styles.callButton, { backgroundColor: theme.success }]}
                 onPress={handleCallSupport}
-                testID="button-call-support"
               >
                 <Feather name="phone" size={20} color="#FFFFFF" />
                 <ThemedText type="body" style={{ color: "#FFFFFF", fontWeight: "600", marginLeft: Spacing.sm }}>
@@ -430,14 +529,13 @@ export default function BookServiceScreen() {
                       style={[
                         styles.appointmentCard,
                         { backgroundColor: theme.backgroundDefault },
-                        isSelected && { borderColor: theme.primary, borderWidth: 2, backgroundColor: theme.primaryLight },
+                        isSelected && { borderColor: theme.primary, borderWidth: 2 },
                         Shadows.small,
                       ]}
                       onPress={() => {
                         setSelectedAppointment(apt);
                         Haptics.selectionAsync();
                       }}
-                      testID={`appointment-${index}`}
                     >
                       <ThemedText type="body" style={[styles.appointmentDate, isSelected && { color: theme.primary }]}>
                         {formatAppointmentDate(apt.date)}
@@ -457,11 +555,7 @@ export default function BookServiceScreen() {
                   );
                 })}
               </View>
-            </>
-          )}
 
-          {!appointmentApiError ? (
-            <>
               <ThemedText type="small" style={[styles.label, { color: theme.textSecondary }]}>
                 ADDITIONAL NOTES (OPTIONAL)
               </ThemedText>
@@ -472,189 +566,77 @@ export default function BookServiceScreen() {
                 multiline
                 numberOfLines={3}
                 style={styles.textArea}
-                testID="input-notes"
               />
+
+              {selectedAppointment ? (
+                <View style={[styles.summaryCard, { backgroundColor: theme.backgroundDefault }]}>
+                  <ThemedText type="body" style={{ fontWeight: "600" }}>
+                    Booking Summary
+                  </ThemedText>
+                  <View style={styles.summaryRow}>
+                    <ThemedText type="small" style={{ color: theme.textSecondary }}>Service:</ThemedText>
+                    <ThemedText type="small" numberOfLines={1} style={{ flex: 1, textAlign: "right" }}>
+                      {selectedJob.description}
+                    </ThemedText>
+                  </View>
+                  <View style={styles.summaryRow}>
+                    <ThemedText type="small" style={{ color: theme.textSecondary }}>Appointment:</ThemedText>
+                    <ThemedText type="small">
+                      {formatAppointmentDate(selectedAppointment.date)} {selectedAppointment.availableTime}
+                    </ThemedText>
+                  </View>
+                  <View style={styles.summaryRow}>
+                    <ThemedText type="small" style={{ color: theme.textSecondary }}>Price:</ThemedText>
+                    <ThemedText type="body" style={{ color: theme.primary, fontWeight: "600" }}>
+                      {formatPrice(selectedJob.price)}
+                    </ThemedText>
+                  </View>
+                </View>
+              ) : null}
+
+              <Pressable
+                onPress={handleSubmit}
+                disabled={!selectedAppointment || isSubmitting}
+                style={[
+                  styles.submitButton,
+                  { backgroundColor: selectedAppointment && !isSubmitting ? theme.primary : theme.backgroundSecondary },
+                ]}
+              >
+                <ThemedText type="body" style={{ color: selectedAppointment ? "#FFFFFF" : theme.textSecondary, fontWeight: "600" }}>
+                  {isSubmitting ? "Booking..." : "Confirm Booking"}
+                </ThemedText>
+              </Pressable>
             </>
-          ) : null}
-
-          {selectedAppointment && !appointmentApiError ? (
-            <View style={[styles.summaryCard, { backgroundColor: theme.backgroundDefault }]}>
-              <ThemedText type="body" style={{ fontWeight: "600" }}>
-                Booking Summary
-              </ThemedText>
-              <View style={styles.summaryRow}>
-                <ThemedText type="small" style={{ color: theme.textSecondary }}>
-                  Service:
-                </ThemedText>
-                <ThemedText type="small" numberOfLines={1} style={{ flex: 1, textAlign: "right" }}>
-                  {selectedJob.description}
-                </ThemedText>
-              </View>
-              <View style={styles.summaryRow}>
-                <ThemedText type="small" style={{ color: theme.textSecondary }}>
-                  Appointment:
-                </ThemedText>
-                <ThemedText type="small">
-                  {formatAppointmentDate(selectedAppointment.date)} {formatAppointmentTime(selectedAppointment.starttime, selectedAppointment.endtime)}
-                </ThemedText>
-              </View>
-              <View style={styles.summaryRow}>
-                <ThemedText type="small" style={{ color: theme.textSecondary }}>
-                  Price:
-                </ThemedText>
-                <ThemedText type="body" style={{ color: theme.primary, fontWeight: "600" }}>
-                  {formatPrice(selectedJob.price)}
-                </ThemedText>
-              </View>
-            </View>
-          ) : null}
+          )}
         </>
-      ) : (
-        <View style={styles.emptyState}>
-          <Feather name="alert-circle" size={32} color={theme.textSecondary} />
-          <ThemedText type="body" style={{ color: theme.textSecondary, marginTop: Spacing.md }}>
-            No service selected
-          </ThemedText>
-        </View>
-      )}
-
-      {!appointmentApiError ? (
-        <Button
-          onPress={handleSubmit}
-          disabled={!selectedJob || !selectedAppointment || isSubmitting}
-          style={styles.submitButton}
-          testID="button-submit"
-        >
-          {isSubmitting ? "Booking..." : "Make Booking"}
-        </Button>
       ) : null}
     </KeyboardAwareScrollViewCompat>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-  },
-  loadingContainer: {
-    flex: 1,
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  successContainer: {
-    flex: 1,
-    justifyContent: "center",
-    alignItems: "center",
-    paddingHorizontal: Spacing.xl,
-  },
-  successIcon: {
-    width: 120,
-    height: 120,
-    borderRadius: 60,
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  propertyBanner: {
-    flexDirection: "row",
-    alignItems: "center",
-    padding: Spacing.md,
-    borderRadius: BorderRadius.md,
-    marginBottom: Spacing.md,
-  },
-  serviceCard: {
-    flexDirection: "row",
-    alignItems: "center",
-    padding: Spacing.lg,
-    borderRadius: BorderRadius.md,
-    marginBottom: Spacing.md,
-  },
-  serviceIconContainer: {
-    width: 56,
-    height: 56,
-    borderRadius: BorderRadius.md,
-    justifyContent: "center",
-    alignItems: "center",
-    marginRight: Spacing.md,
-  },
-  serviceInfo: {
-    flex: 1,
-  },
-  serviceMeta: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: Spacing.sm,
-    marginTop: Spacing.xs,
-  },
-  appointmentsGrid: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: Spacing.sm,
-  },
-  appointmentCard: {
-    padding: Spacing.md,
-    borderRadius: BorderRadius.md,
-    minWidth: 140,
-    alignItems: "center",
-    borderWidth: 1,
-    borderColor: "transparent",
-  },
-  appointmentDate: {
-    fontWeight: "600",
-    marginBottom: Spacing.xs,
-  },
-  label: {
-    fontWeight: "600",
-    marginBottom: Spacing.md,
-    marginTop: Spacing.lg,
-  },
-  priceBadge: {
-    paddingHorizontal: Spacing.sm,
-    paddingVertical: Spacing.xs,
-    borderRadius: BorderRadius.sm,
-  },
-  textArea: {
-    height: 80,
-    textAlignVertical: "top",
-    paddingTop: Spacing.md,
-  },
-  summaryCard: {
-    padding: Spacing.lg,
-    borderRadius: BorderRadius.md,
-    marginTop: Spacing.lg,
-    gap: Spacing.sm,
-  },
-  summaryRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-  },
-  emptyState: {
-    alignItems: "center",
-    paddingVertical: Spacing.xl,
-  },
-  submitButton: {
-    marginTop: Spacing.xl,
-  },
-  errorCard: {
-    padding: Spacing.xl,
-    borderRadius: BorderRadius.md,
-    alignItems: "center",
-    marginTop: Spacing.lg,
-  },
-  errorIconContainer: {
-    width: 64,
-    height: 64,
-    borderRadius: 32,
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  callButton: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    paddingHorizontal: Spacing.xl,
-    paddingVertical: Spacing.md,
-    borderRadius: BorderRadius.md,
-    marginTop: Spacing.lg,
-  },
+  container: { flex: 1 },
+  loadingContainer: { flex: 1, justifyContent: "center", alignItems: "center" },
+  successContainer: { flex: 1, justifyContent: "center", alignItems: "center", paddingHorizontal: Spacing.xl },
+  successIcon: { width: 120, height: 120, borderRadius: 60, justifyContent: "center", alignItems: "center" },
+  doneButton: { marginTop: Spacing.xl, paddingHorizontal: Spacing["2xl"], paddingVertical: Spacing.md, borderRadius: BorderRadius.md },
+  propertyBanner: { flexDirection: "row", alignItems: "center", padding: Spacing.md, borderRadius: BorderRadius.md, marginBottom: Spacing.md },
+  categoryHeader: { flexDirection: "row", alignItems: "center", marginBottom: Spacing.sm },
+  serviceRow: { flexDirection: "row", alignItems: "center", padding: Spacing.lg, borderRadius: BorderRadius.md, marginBottom: Spacing.sm },
+  backLink: { flexDirection: "row", alignItems: "center", marginBottom: Spacing.md },
+  serviceCard: { flexDirection: "row", alignItems: "center", padding: Spacing.lg, borderRadius: BorderRadius.md, marginBottom: Spacing.md },
+  serviceIconContainer: { width: 56, height: 56, borderRadius: BorderRadius.md, justifyContent: "center", alignItems: "center", marginRight: Spacing.md },
+  serviceInfo: { flex: 1 },
+  serviceMeta: { flexDirection: "row", alignItems: "center", gap: Spacing.sm, marginTop: Spacing.xs },
+  appointmentsGrid: { flexDirection: "row", flexWrap: "wrap", gap: Spacing.sm },
+  appointmentCard: { padding: Spacing.md, borderRadius: BorderRadius.md, minWidth: 140, alignItems: "center", borderWidth: 1, borderColor: "transparent" },
+  appointmentDate: { fontWeight: "600", marginBottom: Spacing.xs },
+  label: { fontWeight: "600", marginBottom: Spacing.md, marginTop: Spacing.lg },
+  textArea: { height: 80, textAlignVertical: "top", paddingTop: Spacing.md },
+  summaryCard: { padding: Spacing.lg, borderRadius: BorderRadius.md, marginTop: Spacing.lg, gap: Spacing.sm },
+  summaryRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
+  submitButton: { marginTop: Spacing.xl, paddingVertical: Spacing.lg, borderRadius: BorderRadius.md, alignItems: "center" },
+  errorCard: { padding: Spacing.xl, borderRadius: BorderRadius.md, alignItems: "center", marginTop: Spacing.lg },
+  errorIconContainer: { width: 64, height: 64, borderRadius: 32, justifyContent: "center", alignItems: "center" },
+  callButton: { flexDirection: "row", alignItems: "center", justifyContent: "center", paddingHorizontal: Spacing.xl, paddingVertical: Spacing.md, borderRadius: BorderRadius.md, marginTop: Spacing.lg },
 });
