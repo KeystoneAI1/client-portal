@@ -277,11 +277,11 @@ export default function HomeScreen() {
         borderBottomColor: theme.border,
       }]}>
         <Image
-          source={require("../assets/images/aquila-logo.png")}
+          source={require("../assets/images/aquila-bird.png")}
           style={styles.headerLogo}
           resizeMode="contain"
         />
-        <ThemedText type="h3" style={styles.headerTitle}>Client Portal</ThemedText>
+        <ThemedText type="h3" style={styles.headerTitle}>Aquila</ThemedText>
       </View>
 
       <ScrollView
@@ -545,7 +545,7 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
   },
   headerLogo: {
-    width: 100,
+    width: 50,
     height: 50,
   },
   headerTitle: {

@@ -140,7 +140,7 @@ export default function LoginScreen() {
     >
       <View style={styles.logoContainer}>
         <Image
-          source={require("../assets/images/aquila-logo.png")}
+          source={require("../assets/images/aquila-bird.png")}
           style={styles.logo}
           resizeMode="contain"
         />
