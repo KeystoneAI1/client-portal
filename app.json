@@ -1,10 +1,10 @@
 {
   "expo": {
-    "name": "Client Portal",
+    "name": "Aquila Client Portal",
     "slug": "client-portal",
     "version": "1.0.0",
     "orientation": "portrait",
-    "icon": "./assets/images/icon.png",
+    "icon": "./assets/images/favicon.png",
     "scheme": "clientportal",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
