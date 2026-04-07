@@ -79,12 +79,12 @@ export default function ServicesScreen() {
         const customerResponse = await fetch(
           new URL(`/api/commusoft/customer/${customerId}`, getApiUrl()).toString()
         );
-        
+
         if (customerResponse.ok) {
           const customerData = await customerResponse.json();
           const customer = customerData.Customer || customerData.customer || customerData;
           const apiPlans = customer.servicePlans || customer.serviceplans || [];
-          
+
           plans = apiPlans.map((p: any) => ({
             id: String(p.id || p.servicePlanId),
             name: p.description || p.name || "Service Plan",
@@ -97,6 +97,47 @@ export default function ServicesScreen() {
           }));
           await storage.setServicePlans(plans);
         }
+
+        // Load invoices from API
+        try {
+          const invoicesResponse = await fetch(
+            new URL(`/api/commusoft/customer/${customerId}/invoices`, getApiUrl()).toString()
+          );
+          if (invoicesResponse.ok) {
+            const invoicesData = await invoicesResponse.json();
+            const apiInvoices = invoicesData.invoices || [];
+            invoices = apiInvoices.map((inv: any) => ({
+              id: String(inv.id),
+              invoiceNumber: inv.invoicenumber || inv.id?.toString() || "",
+              amount: parseFloat(inv.total || inv.amount || "0"),
+              status: (inv.status || "pending").toLowerCase() as Invoice["status"],
+              issueDate: inv.createdondatetime || inv.issuedate || "",
+              dueDate: inv.duedate || "",
+              description: inv.description || inv.jobDescription || "Invoice",
+              jobId: inv.jobId ? String(inv.jobId) : undefined,
+            }));
+            await storage.setInvoices(invoices);
+          }
+        } catch { /* use storage fallback */ }
+
+        // Load certificates from API
+        try {
+          const certsResponse = await fetch(
+            new URL(`/api/commusoft/customer/${customerId}/certificates`, getApiUrl()).toString()
+          );
+          if (certsResponse.ok) {
+            const certsData = await certsResponse.json();
+            const apiCerts = certsData.certificates || [];
+            certificates = apiCerts.map((cert: any) => ({
+              id: String(cert.id || cert.tablepkid),
+              type: cert.Name || cert.type || "Certificate",
+              issueDate: cert.createdondatetime || "",
+              expiryDate: "",
+              documentUrl: cert.documentUrl || undefined,
+            }));
+            await storage.setCertificates(certificates);
+          }
+        } catch { /* use storage fallback */ }
       } catch (error) {
         console.error("Failed to load data from API:", error);
         [plans, jobs, invoices, certificates] = await Promise.all([
@@ -130,6 +171,11 @@ export default function ServicesScreen() {
       loadData();
     }, [loadData]),
   );
+
+  // Reload when property changes
+  React.useEffect(() => {
+    if (selectedProperty) loadData();
+  }, [selectedProperty?.id]);
 
   const onRefresh = async () => {
     setRefreshing(true);

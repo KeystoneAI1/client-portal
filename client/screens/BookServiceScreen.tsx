@@ -264,10 +264,13 @@ export default function BookServiceScreen() {
     loadAppointments(job);
   };
 
+  const [bookingError, setBookingError] = useState<string | null>(null);
+
   const handleSubmit = async () => {
-    if (!selectedJob || !selectedAppointment) return;
+    if (!selectedJob || !selectedAppointment || !selectedProperty) return;
 
     setIsSubmitting(true);
+    setBookingError(null);
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
 
     try {
@@ -282,6 +285,10 @@ export default function BookServiceScreen() {
           uuid: crypto.randomUUID(),
           description: selectedJob.description,
           isservicejob: true,
+          jobdescriptionid: selectedJob.id,
+          propertyid: selectedProperty.id,
+          workaddressid: selectedProperty.id,
+          engineerid: selectedAppointment.engineerid,
           startdatetime: startDateTime,
           enddatetime: endDateTime,
           engineernotes: notes.trim() || undefined,
@@ -290,7 +297,7 @@ export default function BookServiceScreen() {
         },
       };
 
-      await fetch(
+      const response = await fetch(
         new URL(`/api/commusoft/customer/${accountNumber}/jobs`, getApiUrl()).toString(),
         {
           method: "POST",
@@ -299,14 +306,19 @@ export default function BookServiceScreen() {
         }
       );
 
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.error || `Booking failed (${response.status})`);
+      }
+
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       setIsSubmitting(false);
       setBookingSuccess(true);
-    } catch (error) {
+    } catch (error: any) {
       console.error("Failed to book service:", error);
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
       setIsSubmitting(false);
-      setBookingSuccess(true);
+      setBookingError(error.message || "Booking failed. Please try again or call us on 01925 234450.");
     }
   };
 
@@ -595,15 +607,21 @@ export default function BookServiceScreen() {
                 </View>
               ) : null}
 
+              {bookingError ? (
+                <View style={{ backgroundColor: "#FEE2E2", padding: Spacing.md, borderRadius: BorderRadius.md, marginTop: Spacing.md }}>
+                  <ThemedText type="small" style={{ color: "#DC2626" }}>{bookingError}</ThemedText>
+                </View>
+              ) : null}
+
               <Pressable
                 onPress={handleSubmit}
-                disabled={!selectedAppointment || isSubmitting}
+                disabled={!selectedAppointment || !selectedProperty || isSubmitting}
                 style={[
                   styles.submitButton,
-                  { backgroundColor: selectedAppointment && !isSubmitting ? theme.primary : theme.backgroundSecondary },
+                  { backgroundColor: selectedAppointment && selectedProperty && !isSubmitting ? theme.primary : theme.backgroundSecondary },
                 ]}
               >
-                <ThemedText type="body" style={{ color: selectedAppointment ? "#FFFFFF" : theme.textSecondary, fontWeight: "600" }}>
+                <ThemedText type="body" style={{ color: selectedAppointment && selectedProperty ? "#FFFFFF" : theme.textSecondary, fontWeight: "600" }}>
                   {isSubmitting ? "Booking..." : "Confirm Booking"}
                 </ThemedText>
               </Pressable>

@@ -86,20 +86,24 @@ export default function HomeScreen() {
         for (const pr of propReminders) {
           const dueDate = pr.duedate ? new Date(pr.duedate) : null;
           const reminderDate = pr.reminderdate ? new Date(pr.reminderdate) : null;
-          const isOverdue = dueDate ? dueDate < now : false;
-          const status = pr.status || "";
+          // OVERDUE = due date is in the past (compare date-only, ignore time)
+          const isOverdue = dueDate ? dueDate.getTime() < now.getTime() : false;
 
-          // Find matching system reminder for job description ID
+          // Find matching system reminder for job description ID and name
           const matchingSystemReminder = systemReminders.find((sr: ServiceReminder) => sr.id === pr.settingsserviceremindersid);
+
+          // Use system reminder name if matched, otherwise contractName, otherwise fallback
+          // NEVER use pr.description (that's the customer title like "Mr")
+          const serviceName = matchingSystemReminder?.name || pr.contractName || "Service Due";
 
           statuses.push({
             reminder: {
               id: pr.id,
-              name: matchingSystemReminder?.name || pr.description || "Service",
+              name: serviceName,
               settingsjobdescriptionid: matchingSystemReminder?.settingsjobdescriptionid || 0,
               serviceperiod: matchingSystemReminder?.serviceperiod || 12,
             },
-            isDue: isOverdue || status === "due_not_booked",
+            isDue: isOverdue,
             nextDueDate: dueDate,
             lastServiceDate: reminderDate,
           });
@@ -253,6 +257,14 @@ export default function HomeScreen() {
     }, [loadData, loadServiceReminders, loadAnnouncements]),
   );
 
+  // Reload when property changes (not just on focus)
+  React.useEffect(() => {
+    if (selectedProperty) {
+      loadData();
+      loadServiceReminders();
+    }
+  }, [selectedProperty?.id]);
+
   const onRefresh = async () => {
     setRefreshing(true);
     await Promise.all([loadData(), refreshProperties()]);
@@ -339,7 +351,20 @@ export default function HomeScreen() {
                   <ThemedText type="small" style={{ fontWeight: "700" }}>{a.title}</ThemedText>
                   <ThemedText type="small" style={{ color: theme.textSecondary, marginTop: 2 }}>{a.message}</ThemedText>
                   {a.linkText ? (
-                    <Pressable onPress={() => navigation.navigate("BookService", {})} style={{ marginTop: Spacing.xs }}>
+                    <Pressable
+                      onPress={() => {
+                        if (a.link) {
+                          if (typeof window !== "undefined") {
+                            window.open(a.link, "_blank");
+                          } else {
+                            require("react-native").Linking.openURL(a.link);
+                          }
+                        } else {
+                          navigation.navigate("BookService", {});
+                        }
+                      }}
+                      style={{ marginTop: Spacing.xs }}
+                    >
                       <ThemedText type="small" style={{ color: theme.primary, fontWeight: "600" }}>{a.linkText} →</ThemedText>
                     </Pressable>
                   ) : null}
@@ -501,15 +526,55 @@ export default function HomeScreen() {
       <SectionHeader title="Explore Our Services" />
       <View style={styles.promoGrid}>
         {[
-          { icon: "sun" as const, title: "Solar PV", subtitle: "Cut your energy bills by up to 70%", color: "#F59E0B" },
-          { icon: "battery-charging" as const, title: "EV Chargers", subtitle: "OZEV approved installation", color: "#10B981" },
-          { icon: "thermometer" as const, title: "Heat Pumps", subtitle: "MCS certified, grant eligible", color: "#3B82F6" },
-          { icon: "battery" as const, title: "Battery Storage", subtitle: "Store solar energy for later", color: "#8B5CF6" },
+          {
+            icon: "sun" as const,
+            title: "Solar + Battery",
+            subtitle: "Free video survey — cut bills 70%",
+            color: "#F59E0B",
+            link: "https://cal.keystoneai.tech/lee/solar-video-survey",
+          },
+          {
+            icon: "battery-charging" as const,
+            title: "EV Chargers",
+            subtitle: "Free video quote — OZEV approved",
+            color: "#10B981",
+            link: "https://cal.keystoneai.tech/lee/ev-charger-video-call",
+          },
+          {
+            icon: "thermometer" as const,
+            title: "Heat Pumps",
+            subtitle: "Free video survey — MCS certified",
+            color: "#3B82F6",
+            link: "https://cal.keystoneai.tech/phil/ashp-video-survey",
+          },
+          {
+            icon: "droplet" as const,
+            title: "Boiler Quote",
+            subtitle: "Free home survey — Gas Safe",
+            color: "#EF4444",
+            link: "https://cal.keystoneai.tech/phil/boiler-home-survey",
+          },
+          {
+            icon: "wind" as const,
+            title: "Air Conditioning",
+            subtitle: "F-Gas certified installation",
+            color: "#8B5CF6",
+          },
         ].map((promo) => (
           <Pressable
             key={promo.title}
             style={[styles.promoCard, { backgroundColor: theme.backgroundDefault }]}
-            onPress={() => navigation.navigate("BookService", {})}
+            onPress={() => {
+              if (promo.link) {
+                if (typeof window !== "undefined") {
+                  window.open(promo.link, "_blank");
+                } else {
+                  require("react-native").Linking.openURL(promo.link);
+                }
+              } else {
+                navigation.navigate("BookService", {});
+              }
+            }}
           >
             <View style={[styles.promoIcon, { backgroundColor: promo.color + "20" }]}>
               <Feather name={promo.icon} size={22} color={promo.color} />

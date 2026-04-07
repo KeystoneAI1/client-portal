@@ -45,8 +45,40 @@ const announcements: Announcement[] = [
   {
     id: "ev-grant-2026",
     type: "update",
-    title: "EV Charger Grants Available",
-    message: "The OZEV grant covers up to £350 towards a home EV charger installation. We're approved installers — ask us about eligibility.",
+    title: "EV Charger — Free Video Quote",
+    message: "Get a free video quote for an EV charger installation. The OZEV grant covers up to £350 — we're approved installers.",
+    link: "https://cal.keystoneai.tech/lee/ev-charger-video-call",
+    linkText: "Book Video Quote",
+    createdAt: new Date().toISOString(),
+    active: true,
+  },
+  {
+    id: "solar-survey-2026",
+    type: "offer",
+    title: "Solar + Battery — Free Video Survey",
+    message: "Cut your energy bills by up to 70%. Book a free, no-obligation video survey with our MCS-certified team.",
+    link: "https://cal.keystoneai.tech/lee/solar-video-survey",
+    linkText: "Book Free Survey",
+    createdAt: new Date().toISOString(),
+    active: true,
+  },
+  {
+    id: "ashp-survey-2026",
+    type: "update",
+    title: "Heat Pump — Free Video Survey",
+    message: "Considering an air source heat pump? Get a free survey with Phil. BUS grant of £7,500 available.",
+    link: "https://cal.keystoneai.tech/phil/ashp-video-survey",
+    linkText: "Book Survey",
+    createdAt: new Date().toISOString(),
+    active: true,
+  },
+  {
+    id: "boiler-quote-2026",
+    type: "info",
+    title: "New Boiler? Free Home Survey",
+    message: "Get a free home survey for a new boiler installation. Gas Safe registered installers, finance available.",
+    link: "https://cal.keystoneai.tech/phil/boiler-home-survey",
+    linkText: "Book Home Survey",
     createdAt: new Date().toISOString(),
     active: true,
   },
@@ -468,7 +500,7 @@ TONE:
 - Be concise — short paragraphs, bullet points where helpful
 - Ask ONE or TWO questions at a time, not a long list`;
 
-      const claudeMessages = (history || []).slice(-8).map((m: any) => ({
+      const claudeMessages = (history || []).slice(-10).map((m: any) => ({
         role: m.role as "user" | "assistant",
         content: m.content,
       }));
@@ -504,8 +536,18 @@ TONE:
     res.json({ announcements: active });
   });
 
+  // Admin auth check
+  const requireAdmin = (req: Request, res: Response, next: Function) => {
+    const adminKey = process.env.ADMIN_API_KEY || "aquila-admin-2026";
+    const provided = req.header("X-Admin-Key") || req.query.admin_key;
+    if (provided !== adminKey) {
+      return res.status(401).json({ error: "Unauthorized" });
+    }
+    next();
+  };
+
   // Admin: create announcement
-  app.post("/api/admin/announcements", (req: Request, res: Response) => {
+  app.post("/api/admin/announcements", requireAdmin, (req: Request, res: Response) => {
     const { type, title, message, link, linkText, expiresAt } = req.body;
     if (!title || !message) {
       return res.status(400).json({ error: "title and message are required" });
@@ -526,7 +568,7 @@ TONE:
   });
 
   // Admin: update announcement
-  app.put("/api/admin/announcements/:id", (req: Request, res: Response) => {
+  app.put("/api/admin/announcements/:id", requireAdmin, (req: Request, res: Response) => {
     const idx = announcements.findIndex(a => a.id === req.params.id);
     if (idx === -1) return res.status(404).json({ error: "Not found" });
     Object.assign(announcements[idx], req.body);
@@ -534,7 +576,7 @@ TONE:
   });
 
   // Admin: delete announcement
-  app.delete("/api/admin/announcements/:id", (req: Request, res: Response) => {
+  app.delete("/api/admin/announcements/:id", requireAdmin, (req: Request, res: Response) => {
     const idx = announcements.findIndex(a => a.id === req.params.id);
     if (idx === -1) return res.status(404).json({ error: "Not found" });
     announcements[idx].active = false;
@@ -542,7 +584,7 @@ TONE:
   });
 
   // Admin: list app users (customers who have logged into the app)
-  app.get("/api/admin/app-users", (_req: Request, res: Response) => {
+  app.get("/api/admin/app-users", requireAdmin, (_req: Request, res: Response) => {
     const users = Array.from(appUsers.values());
     res.json({ count: users.length, users });
   });

@@ -223,6 +223,14 @@ export async function getJob(jobId: string) {
 }
 
 export async function createJob(customerId: string, data: unknown) {
+  const jobData = data as any;
+  if (!jobData?.job) {
+    throw new Error("job object required");
+  }
+  if (!jobData.job.propertyid && !jobData.job.workaddressid) {
+    throw new Error("propertyid or workaddressid required — cannot create job without property");
+  }
+  console.log(`[CommusoftClient] Creating job for customer ${customerId}: ${jobData.job.description} | engineer: ${jobData.job.engineerid} | property: ${jobData.job.propertyid}`);
   return commusoftRequest({
     method: "POST",
     endpoint: `/api/v1/customers/${customerId}/jobs`,
