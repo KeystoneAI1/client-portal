@@ -184,6 +184,24 @@ export default function LoginScreen() {
             <Button onPress={handleRequestCode} style={styles.loginButton} testID="button-send-code">
               Send Verification Code
             </Button>
+
+            <Pressable
+              onPress={() => {
+                if (!email.trim()) {
+                  setError("Please enter your email first");
+                  return;
+                }
+                setError("");
+                setStep("code");
+                setMaskedPhone("your phone");
+                setTimeout(() => codeInputRef.current?.focus(), 300);
+              }}
+              style={styles.haveCodeButton}
+            >
+              <ThemedText type="small" style={{ color: theme.primary, textAlign: "center" }}>
+                I already have a code →
+              </ThemedText>
+            </Pressable>
           </>
         ) : (
           <>
@@ -307,6 +325,10 @@ const styles = StyleSheet.create({
   },
   loginButton: {
     marginTop: Spacing.sm,
+  },
+  haveCodeButton: {
+    marginTop: Spacing.lg,
+    padding: Spacing.sm,
   },
   codeActions: {
     alignItems: "center",
