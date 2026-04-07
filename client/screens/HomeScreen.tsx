@@ -6,6 +6,7 @@ import {
   RefreshControl,
   Pressable,
   Image,
+  Linking,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useBottomTabBarHeight } from "@react-navigation/bottom-tabs";
@@ -15,14 +16,11 @@ import { useFocusEffect } from "@react-navigation/native";
 
 import { Feather } from "@expo/vector-icons";
 import { ThemedText } from "@/components/ThemedText";
-import { SectionHeader } from "@/components/SectionHeader";
-import { QuickActionCard } from "@/components/QuickActionCard";
-import { SummaryCard } from "@/components/SummaryCard";
 import { PropertySelector } from "@/components/PropertySelector";
 import { useTheme } from "@/hooks/useTheme";
 import { useAuth } from "@/hooks/useAuth";
 import { useProperty } from "@/lib/propertyContext";
-import { Spacing } from "@/constants/theme";
+import { Spacing, BorderRadius, Shadows } from "@/constants/theme";
 import { storage, ServicePlan, Job, Invoice } from "@/lib/storage";
 import { RootStackParamList } from "@/navigation/RootStackNavigator";
 import { getApiUrl } from "@/lib/query-client";
@@ -42,6 +40,14 @@ interface ServiceStatus {
 }
 
 type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
+
+const openLink = (url: string) => {
+  if (typeof window !== "undefined") {
+    window.open(url, "_blank");
+  } else {
+    Linking.openURL(url);
+  }
+};
 
 export default function HomeScreen() {
   const insets = useSafeAreaInsets();
@@ -63,7 +69,6 @@ export default function HomeScreen() {
     if (!customerId) return;
 
     try {
-      // Load customer's actual property service reminders from Commusoft
       const [propertyRemindersResponse, systemRemindersResponse] = await Promise.all([
         fetch(new URL(`/api/commusoft/customer/${customerId}/propertyservicereminders`, getApiUrl()).toString()),
         fetch(new URL("/api/commusoft/servicereminders", getApiUrl()).toString()),
@@ -72,12 +77,10 @@ export default function HomeScreen() {
       const now = new Date();
       const statuses: ServiceStatus[] = [];
 
-      // Try property-specific reminders first (real customer data)
       if (propertyRemindersResponse.ok) {
         const propData = await propertyRemindersResponse.json();
         const propReminders = propData.servicereminder || [];
 
-        // Get system reminders for job description mapping
         let systemReminders: ServiceReminder[] = [];
         if (systemRemindersResponse.ok) {
           systemReminders = (await systemRemindersResponse.json()).servicereminders || [];
@@ -86,21 +89,36 @@ export default function HomeScreen() {
         for (const pr of propReminders) {
           const dueDate = pr.duedate ? new Date(pr.duedate) : null;
           const reminderDate = pr.reminderdate ? new Date(pr.reminderdate) : null;
-          // OVERDUE = due date is in the past (compare date-only, ignore time)
           const isOverdue = dueDate ? dueDate.getTime() < now.getTime() : false;
 
-          // Find matching system reminder for job description ID and name
-          const matchingSystemReminder = systemReminders.find((sr: ServiceReminder) => sr.id === pr.settingsserviceremindersid);
+          // Match by settingsserviceremindersid if available
+          const matchingSystemReminder = systemReminders.find((sr: ServiceReminder) =>
+            sr.id === pr.settingsserviceremindersid
+          );
 
-          // Use system reminder name if matched, otherwise contractName, otherwise fallback
-          // NEVER use pr.description (that's the customer title like "Mr")
-          const serviceName = matchingSystemReminder?.name || pr.contractName || "Service Due";
+          // Try to infer service type from contractName or default to most common boiler service
+          let serviceName = matchingSystemReminder?.name || pr.contractName || "Service Due";
+          let jobDescId = matchingSystemReminder?.settingsjobdescriptionid || 0;
+
+          // Fallback: if no match, default to boiler service NG (id 16) — most common
+          if (!jobDescId && systemReminders.length > 0) {
+            const boilerService = systemReminders.find((sr) =>
+              sr.name.toLowerCase().includes("boiler service") &&
+              sr.name.toLowerCase().includes("natural gas")
+            );
+            if (boilerService) {
+              jobDescId = boilerService.settingsjobdescriptionid;
+              if (serviceName === "Service Due") {
+                serviceName = boilerService.name;
+              }
+            }
+          }
 
           statuses.push({
             reminder: {
               id: pr.id,
               name: serviceName,
-              settingsjobdescriptionid: matchingSystemReminder?.settingsjobdescriptionid || 0,
+              settingsjobdescriptionid: jobDescId,
               serviceperiod: matchingSystemReminder?.serviceperiod || 12,
             },
             isDue: isOverdue,
@@ -110,7 +128,6 @@ export default function HomeScreen() {
         }
       }
 
-      // Sort: overdue first, then by due date
       statuses.sort((a, b) => {
         if (a.isDue && !b.isDue) return -1;
         if (!a.isDue && b.isDue) return 1;
@@ -127,114 +144,84 @@ export default function HomeScreen() {
 
   const loadData = useCallback(async () => {
     const customerId = user?.accountNumber || user?.id;
-    console.log("[HomeScreen] Loading data for customer:", customerId);
-    
-    if (customerId) {
-      // Load upcoming appointments from jobs with ongoing status
-      // Note: Commusoft API doesn't have customer-facing diary events endpoint
-      // So we check for jobs with status "ongoing" which indicates work in progress
-      try {
-        const jobsResponse = await fetch(
-          new URL(`/api/commusoft/customer/${customerId}/jobs`, getApiUrl()).toString()
-        );
-        console.log("[HomeScreen] Jobs API response status:", jobsResponse.status);
-        if (jobsResponse.ok) {
-          const jobsData = await jobsResponse.json();
-          const jobs = jobsData.Jobs || jobsData.jobs || [];
-          
-          // Find ongoing jobs (not completed yet)
-          const ongoingJobs = jobs.filter((job: any) => {
-            const status = (job.status || "").toLowerCase();
-            return status === "ongoing" && !job.isJobDeleted;
-          });
-          
-          console.log("[HomeScreen] Ongoing jobs found:", ongoingJobs.length);
-          if (ongoingJobs.length > 0) {
-            const nextJob = ongoingJobs[0];
-            console.log("[HomeScreen] Next ongoing job:", nextJob.description);
-            
-            // Fetch job appointments to get actual scheduled date
-            let scheduledDate: string | null = null;
-            try {
-              const apptResponse = await fetch(
-                new URL(`/api/commusoft/jobs/${nextJob.id}/appointments`, getApiUrl()).toString()
-              );
-              if (apptResponse.ok) {
-                const apptData = await apptResponse.json();
-                console.log("[HomeScreen] Job appointments:", JSON.stringify(apptData).substring(0, 500));
-                // Get the first future appointment date
-                const appointments = apptData.appointments || apptData.diaryevents || apptData || [];
-                if (Array.isArray(appointments) && appointments.length > 0) {
-                  const firstAppt = appointments[0];
-                  scheduledDate = firstAppt.start || firstAppt.start_date || firstAppt.startdate ||
-                                  firstAppt.date || firstAppt.scheduleddate || null;
-                }
-              }
-            } catch (apptError) {
-              console.log("[HomeScreen] Could not fetch job appointments:", apptError);
-            }
-            
-            setUpcomingJob({
-              id: nextJob.id,
-              description: nextJob.description || "Scheduled Service",
-              scheduledDate: scheduledDate, // null if no real date found
-              status: "in_progress",
-              engineerName: nextJob.engineername || nextJob.engineerName || "",
-              property: "",
-            });
-          } else {
-            setUpcomingJob(null);
-          }
-        }
-      } catch (error) {
-        console.error("Failed to load jobs from API:", error);
-        setUpcomingJob(null);
-      }
+    if (!customerId) return;
 
-      // Load service plans from customer data
-      try {
-        const customerResponse = await fetch(
-          new URL(`/api/commusoft/customer/${customerId}`, getApiUrl()).toString()
-        );
-        console.log("[HomeScreen] Customer API response status:", customerResponse.status);
-        if (customerResponse.ok) {
-          const customerData = await customerResponse.json();
-          console.log("[HomeScreen] Customer data servicePlans:", JSON.stringify(customerData.Customer?.servicePlans || []).substring(0, 500));
-          const servicePlans = customerData.Customer?.servicePlans || [];
-          
-          if (servicePlans.length > 0) {
-            // Find active plan (not expired)
-            const now = new Date();
-            const activePlanData = servicePlans.find((p: any) => {
-              const expireDate = p.expiredate ? new Date(p.expiredate) : null;
-              return !expireDate || expireDate > now;
-            }) || servicePlans[0];
-            
-            setActivePlan({
-              id: activePlanData.id || activePlanData.servicePlanId || "plan-1",
-              name: activePlanData.description || activePlanData.name || "Service Plan",
-              status: "active",
-              startDate: new Date().toISOString(),
-              endDate: activePlanData.expiredate || new Date().toISOString(),
-              coverage: [],
-              price: 0,
-            });
-          } else {
-            setActivePlan(null);
-          }
+    try {
+      const jobsResponse = await fetch(
+        new URL(`/api/commusoft/customer/${customerId}/jobs`, getApiUrl()).toString()
+      );
+      if (jobsResponse.ok) {
+        const jobsData = await jobsResponse.json();
+        const jobs = jobsData.Jobs || jobsData.jobs || [];
+        const ongoingJobs = jobs.filter((j: any) => {
+          const status = (j.status || "").toLowerCase();
+          return status === "ongoing" && !j.isJobDeleted;
+        });
+
+        if (ongoingJobs.length > 0) {
+          const nextJob = ongoingJobs[0];
+          let scheduledDate: string | null = null;
+          try {
+            const apptResponse = await fetch(
+              new URL(`/api/commusoft/jobs/${nextJob.id}/appointments`, getApiUrl()).toString()
+            );
+            if (apptResponse.ok) {
+              const apptData = await apptResponse.json();
+              const appointments = apptData.appointments || apptData.diaryevents || apptData || [];
+              if (Array.isArray(appointments) && appointments.length > 0) {
+                scheduledDate = appointments[0].start || appointments[0].startdate || appointments[0].date || null;
+              }
+            }
+          } catch {}
+
+          setUpcomingJob({
+            id: nextJob.id,
+            description: nextJob.description || "Scheduled Service",
+            scheduledDate,
+            status: "in_progress",
+            engineerName: nextJob.engineername || "",
+            property: "",
+          });
+        } else {
+          setUpcomingJob(null);
         }
-      } catch (error) {
-        console.error("Failed to load customer data from API:", error);
-        setActivePlan(null);
       }
+    } catch {
+      setUpcomingJob(null);
     }
 
-    // Load invoices from local storage
+    try {
+      const customerResponse = await fetch(
+        new URL(`/api/commusoft/customer/${customerId}`, getApiUrl()).toString()
+      );
+      if (customerResponse.ok) {
+        const customerData = await customerResponse.json();
+        const servicePlans = customerData.Customer?.servicePlans || [];
+        if (servicePlans.length > 0) {
+          const now = new Date();
+          const activePlanData = servicePlans.find((p: any) => {
+            const expireDate = p.expiredate ? new Date(p.expiredate) : null;
+            return !expireDate || expireDate > now;
+          }) || servicePlans[0];
+          setActivePlan({
+            id: activePlanData.id || "plan-1",
+            name: activePlanData.description || activePlanData.name || "Service Plan",
+            status: "active",
+            startDate: new Date().toISOString(),
+            endDate: activePlanData.expiredate || new Date().toISOString(),
+            coverage: [],
+            price: 0,
+          });
+        } else {
+          setActivePlan(null);
+        }
+      }
+    } catch {
+      setActivePlan(null);
+    }
+
     const invoices = await storage.getInvoices();
-    const pending = invoices.filter(
-      (i) => i.status === "pending" || i.status === "overdue",
-    );
-    setPendingInvoices(pending);
+    setPendingInvoices(invoices.filter((i) => i.status === "pending" || i.status === "overdue"));
   }, [user, selectedProperty]);
 
   const loadAnnouncements = useCallback(async () => {
@@ -244,9 +231,7 @@ export default function HomeScreen() {
         const data = await response.json();
         setAnnouncements(data.announcements || []);
       }
-    } catch {
-      // Silent fail
-    }
+    } catch {}
   }, []);
 
   useFocusEffect(
@@ -257,7 +242,6 @@ export default function HomeScreen() {
     }, [loadData, loadServiceReminders, loadAnnouncements]),
   );
 
-  // Reload when property changes (not just on focus)
   React.useEffect(() => {
     if (selectedProperty) {
       loadData();
@@ -267,7 +251,7 @@ export default function HomeScreen() {
 
   const onRefresh = async () => {
     setRefreshing(true);
-    await Promise.all([loadData(), refreshProperties()]);
+    await Promise.all([loadData(), loadServiceReminders(), loadAnnouncements(), refreshProperties()]);
     setRefreshing(false);
   };
 
@@ -278,19 +262,16 @@ export default function HomeScreen() {
     return "Good evening";
   };
 
-  const formatDate = (dateStr: string) => {
-    const date = new Date(dateStr);
-    return date.toLocaleDateString("en-GB", {
-      day: "numeric",
-      month: "short",
-      year: "numeric",
-    });
+  const formatDate = (date: Date) => {
+    return date.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
   };
+
+  // Filter announcements: show only top priority offer/warning, not all 7
+  const topAnnouncement = announcements.find((a) => a.type === "warning") || announcements.find((a) => a.type === "offer");
 
   return (
     <View style={[styles.container, { backgroundColor: theme.backgroundRoot }]}>
-      {/* Fixed Header with Logo and Client Portal */}
-      <View style={[styles.fixedHeader, { 
+      <View style={[styles.fixedHeader, {
         paddingTop: insets.top + Spacing.md,
         backgroundColor: theme.backgroundRoot,
         borderBottomColor: theme.border,
@@ -303,7 +284,6 @@ export default function HomeScreen() {
         <ThemedText type="h3" style={styles.headerTitle}>Client Portal</ThemedText>
       </View>
 
-      {/* Scrollable Content */}
       <ScrollView
         style={styles.scrollContent}
         contentContainerStyle={{
@@ -312,292 +292,241 @@ export default function HomeScreen() {
           paddingHorizontal: Spacing.lg,
         }}
         scrollIndicatorInsets={{ bottom: insets.bottom }}
-        refreshControl={
-          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
-        }
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
       >
-        <View style={styles.greeting}>
-          <ThemedText type="h2">
-            {getGreeting()}, {user?.name?.split(" ")[0] || "there"}
-          </ThemedText>
-          <ThemedText
-            type="body"
-            style={[styles.greetingSubtitle, { color: theme.textSecondary }]}
+        {/* Greeting */}
+        <ThemedText type="h2">
+          {getGreeting()}, {user?.name?.split(" ")[0] || "there"}
+        </ThemedText>
+
+        <View style={styles.propertySelector}>
+          <PropertySelector />
+        </View>
+
+        {/* Top Priority Banner — only the most urgent announcement */}
+        {topAnnouncement ? (
+          <Pressable
+            onPress={() => topAnnouncement.link && openLink(topAnnouncement.link)}
+            style={[
+              styles.topBanner,
+              {
+                backgroundColor: topAnnouncement.type === "warning" ? "#FEF3C7" : "#D1FAE5",
+                borderColor: topAnnouncement.type === "warning" ? "#FCD34D" : "#6EE7B7",
+              },
+            ]}
           >
-            Here's your account overview
-          </ThemedText>
-          <View style={styles.propertySelector}>
-            <PropertySelector />
-          </View>
-        </View>
-
-      {announcements.length > 0 ? (
-        <View style={{ marginBottom: Spacing.lg }}>
-          {announcements.map((a) => {
-            const colors: Record<string, { bg: string; border: string; icon: string }> = {
-              offer: { bg: "#10B98115", border: "#10B98140", icon: "#10B981" },
-              warning: { bg: "#EF444415", border: "#EF444440", icon: "#EF4444" },
-              update: { bg: "#3B82F615", border: "#3B82F640", icon: "#3B82F6" },
-              info: { bg: theme.primary + "10", border: theme.primary + "30", icon: theme.primary },
-            };
-            const c = colors[a.type] || colors.info;
-            const icons: Record<string, keyof typeof Feather.glyphMap> = {
-              offer: "tag", warning: "alert-circle", update: "bell", info: "info",
-            };
-            return (
-              <View key={a.id} style={[styles.announcementCard, { backgroundColor: c.bg, borderColor: c.border }]}>
-                <Feather name={icons[a.type] || "info"} size={20} color={c.icon} style={{ marginTop: 2 }} />
-                <View style={{ flex: 1, marginLeft: Spacing.md }}>
-                  <ThemedText type="small" style={{ fontWeight: "700" }}>{a.title}</ThemedText>
-                  <ThemedText type="small" style={{ color: theme.textSecondary, marginTop: 2 }}>{a.message}</ThemedText>
-                  {a.linkText ? (
-                    <Pressable
-                      onPress={() => {
-                        if (a.link) {
-                          if (typeof window !== "undefined") {
-                            window.open(a.link, "_blank");
-                          } else {
-                            require("react-native").Linking.openURL(a.link);
-                          }
-                        } else {
-                          navigation.navigate("BookService", {});
-                        }
-                      }}
-                      style={{ marginTop: Spacing.xs }}
-                    >
-                      <ThemedText type="small" style={{ color: theme.primary, fontWeight: "600" }}>{a.linkText} →</ThemedText>
-                    </Pressable>
-                  ) : null}
-                </View>
+            <View style={styles.topBannerContent}>
+              <Feather
+                name={topAnnouncement.type === "warning" ? "alert-circle" : "tag"}
+                size={20}
+                color={topAnnouncement.type === "warning" ? "#92400E" : "#047857"}
+              />
+              <View style={{ flex: 1, marginLeft: Spacing.sm }}>
+                <ThemedText type="small" style={{ fontWeight: "700", color: topAnnouncement.type === "warning" ? "#92400E" : "#047857" }}>
+                  {topAnnouncement.title}
+                </ThemedText>
+                <ThemedText type="small" style={{ color: theme.textSecondary, marginTop: 2, fontSize: 12 }}>
+                  {topAnnouncement.message}
+                </ThemedText>
               </View>
-            );
-          })}
-        </View>
-      ) : null}
+              {topAnnouncement.link ? (
+                <Feather name="chevron-right" size={18} color={theme.textSecondary} />
+              ) : null}
+            </View>
+          </Pressable>
+        ) : null}
 
-      <SectionHeader title="Your Services" />
-      {serviceStatuses.length > 0 ? (
-        serviceStatuses.map((status) => {
-          const isOverdue = status.isDue;
-          return (
+        {/* YOUR SERVICES — primary content */}
+        <ThemedText type="h3" style={styles.sectionHeading}>Your Services</ThemedText>
+
+        {serviceStatuses.length > 0 ? (
+          serviceStatuses.map((status) => {
+            const isOverdue = status.isDue;
+            return (
+              <Pressable
+                key={status.reminder.id}
+                style={[
+                  styles.serviceCard,
+                  { backgroundColor: theme.backgroundDefault },
+                  isOverdue && styles.serviceCardOverdue,
+                  Shadows.small,
+                ]}
+                onPress={() =>
+                  navigation.navigate("BookService", {
+                    preselectedJobDescriptionId: status.reminder.settingsjobdescriptionid || undefined,
+                    serviceName: status.reminder.name,
+                    serviceReminderId: status.reminder.id,
+                  })
+                }
+              >
+                <View style={[styles.serviceIconBox, { backgroundColor: isOverdue ? "#FEE2E2" : theme.primary + "15" }]}>
+                  <Feather
+                    name={isOverdue ? "alert-triangle" : "calendar"}
+                    size={22}
+                    color={isOverdue ? "#DC2626" : theme.primary}
+                  />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <ThemedText type="body" style={styles.serviceCardTitle}>
+                    {status.reminder.name}
+                  </ThemedText>
+                  {isOverdue ? (
+                    <>
+                      <ThemedText type="small" style={styles.overdueLabel}>
+                        OVERDUE — WARRANTY AT RISK
+                      </ThemedText>
+                      <ThemedText type="small" style={{ color: theme.textSecondary, fontSize: 12, marginTop: 2 }}>
+                        Was due {status.nextDueDate ? formatDate(status.nextDueDate) : "—"}
+                      </ThemedText>
+                    </>
+                  ) : (
+                    <ThemedText type="small" style={{ color: theme.textSecondary, fontSize: 12, marginTop: 2 }}>
+                      Due {status.nextDueDate ? formatDate(status.nextDueDate) : "soon"}
+                    </ThemedText>
+                  )}
+                </View>
+                <Feather name="chevron-right" size={20} color={isOverdue ? "#DC2626" : theme.textSecondary} />
+              </Pressable>
+            );
+          })
+        ) : (
+          <View style={[styles.emptyCard, { backgroundColor: theme.backgroundDefault }, Shadows.small]}>
+            <Feather name="check-circle" size={28} color="#10B981" />
+            <ThemedText type="body" style={{ fontWeight: "600", marginTop: Spacing.sm }}>
+              All Up To Date
+            </ThemedText>
+            <ThemedText type="small" style={{ color: theme.textSecondary, marginTop: 2 }}>
+              No services due right now
+            </ThemedText>
+          </View>
+        )}
+
+        {/* UPCOMING JOB */}
+        {upcomingJob ? (
+          <>
+            <ThemedText type="h3" style={styles.sectionHeading}>Upcoming Appointment</ThemedText>
             <Pressable
-              key={status.reminder.id}
-              style={[
-                styles.serviceStatusCard,
-                { backgroundColor: theme.backgroundDefault },
-                isOverdue && { borderLeftWidth: 4, borderLeftColor: "#EF4444" },
-              ]}
+              style={[styles.serviceCard, { backgroundColor: theme.backgroundDefault }, Shadows.small]}
+              onPress={() => navigation.navigate("JobDetail", { jobId: upcomingJob.id })}
+            >
+              <View style={[styles.serviceIconBox, { backgroundColor: theme.primary + "15" }]}>
+                <Feather name="tool" size={22} color={theme.primary} />
+              </View>
+              <View style={{ flex: 1 }}>
+                <ThemedText type="body" style={styles.serviceCardTitle}>
+                  {upcomingJob.description}
+                </ThemedText>
+                <ThemedText type="small" style={{ color: theme.textSecondary, fontSize: 12, marginTop: 2 }}>
+                  {upcomingJob.scheduledDate ? `Scheduled ${formatDate(new Date(upcomingJob.scheduledDate))}` : "Date to be confirmed"}
+                </ThemedText>
+              </View>
+              <Feather name="chevron-right" size={20} color={theme.textSecondary} />
+            </Pressable>
+          </>
+        ) : null}
+
+        {/* ACTIVE PLAN */}
+        {activePlan ? (
+          <>
+            <ThemedText type="h3" style={styles.sectionHeading}>Service Plan</ThemedText>
+            <Pressable
+              style={[styles.serviceCard, { backgroundColor: theme.backgroundDefault }, Shadows.small]}
               onPress={() =>
-                navigation.navigate("BookService", {
-                  preselectedJobDescriptionId: status.reminder.settingsjobdescriptionid,
-                  serviceName: status.reminder.name,
-                  serviceReminderId: status.reminder.id,
+                navigation.navigate("ServicePlanDetail", {
+                  planId: activePlan.id,
+                  planName: activePlan.name,
+                  planStatus: activePlan.status,
+                  planStartDate: activePlan.startDate,
+                  planEndDate: activePlan.endDate,
                 })
               }
             >
-              <View style={{ flex: 1 }}>
-                <View style={{ flexDirection: "row", alignItems: "center", gap: Spacing.sm }}>
-                  <Feather name={isOverdue ? "alert-triangle" : "clock"} size={18} color={isOverdue ? "#EF4444" : theme.primary} />
-                  <ThemedText type="body" style={{ fontWeight: "600" }}>
-                    {status.reminder.name}
-                  </ThemedText>
-                </View>
-                {isOverdue ? (
-                  <View style={{ marginTop: Spacing.xs }}>
-                    <ThemedText type="small" style={{ color: "#EF4444", fontWeight: "700" }}>
-                      OVERDUE — WARRANTY AT RISK
-                    </ThemedText>
-                    <ThemedText type="small" style={{ color: theme.textSecondary, marginTop: 2 }}>
-                      {status.nextDueDate ? `Was due ${formatDate(status.nextDueDate.toISOString())}` : "Service needed"} — tap to book
-                    </ThemedText>
-                  </View>
-                ) : (
-                  <ThemedText type="small" style={{ color: theme.textSecondary, marginTop: Spacing.xs }}>
-                    Due {status.nextDueDate ? formatDate(status.nextDueDate.toISOString()) : "soon"} — tap to book
-                  </ThemedText>
-                )}
+              <View style={[styles.serviceIconBox, { backgroundColor: "#DCFCE7" }]}>
+                <Feather name="shield" size={22} color="#059669" />
               </View>
-              <Feather name="chevron-right" size={20} color={isOverdue ? "#EF4444" : theme.textSecondary} />
+              <View style={{ flex: 1 }}>
+                <ThemedText type="body" style={styles.serviceCardTitle}>
+                  {activePlan.name}
+                </ThemedText>
+                <ThemedText type="small" style={{ color: theme.textSecondary, fontSize: 12, marginTop: 2 }}>
+                  Active until {formatDate(new Date(activePlan.endDate))}
+                </ThemedText>
+              </View>
+              <Feather name="chevron-right" size={20} color={theme.textSecondary} />
             </Pressable>
-          );
-        })
-      ) : (
-        <SummaryCard
-          icon="check-circle"
-          title="All Services Up To Date"
-          subtitle="No services due right now"
-        />
-      )}
+          </>
+        ) : null}
 
-      <SectionHeader title="Quick Actions" />
-      <View style={styles.quickActions}>
-        <QuickActionCard
-          icon="calendar"
-          title="Book Service"
-          subtitle="Schedule"
-          color={theme.accent}
-          onPress={() => navigation.navigate("BookService", {})}
-          testID="action-book-service"
-        />
-        <View style={styles.quickActionSpacer} />
-        <QuickActionCard
-          icon="message-circle"
-          title="Ask Tech Agent"
-          subtitle="Get help"
-          color={theme.primary}
-          onPress={() => navigation.navigate("Main", { screen: "AITab" })}
-          testID="action-ask-vai"
-        />
-      </View>
+        {/* EXPLORE — combined section, only at the bottom */}
+        <ThemedText type="h3" style={styles.sectionHeading}>Get a Free Quote</ThemedText>
+        <ThemedText type="small" style={{ color: theme.textSecondary, marginBottom: Spacing.md }}>
+          Book a free, no-obligation video survey
+        </ThemedText>
 
-      <SectionHeader
-        title="Active Plans"
-        actionLabel="View all"
-        onAction={() => navigation.navigate("Main", { screen: "ServicesTab" })}
-      />
-      {activePlan ? (
-        <SummaryCard
-          icon="shield"
-          title={activePlan.name}
-          subtitle={`Valid until ${formatDate(activePlan.endDate)}`}
-          status="active"
-          onPress={() =>
-            navigation.navigate("ServicePlanDetail", { 
-              planId: activePlan.id,
-              planName: activePlan.name,
-              planStatus: activePlan.status,
-              planStartDate: activePlan.startDate,
-              planEndDate: activePlan.endDate
-            })
-          }
-          testID="card-active-plan"
-        />
-      ) : (
-        <SummaryCard
-          icon="shield-off"
-          title="No Active Plan"
-          subtitle="Get covered with a service plan"
-          onPress={() => navigation.navigate("Main", { screen: "ServicesTab" })}
-        />
-      )}
-
-      <SectionHeader
-        title="Upcoming Jobs"
-        actionLabel="View all"
-        onAction={() => navigation.navigate("Main", { screen: "ServicesTab" })}
-      />
-      {upcomingJob ? (
-        <SummaryCard
-          icon="tool"
-          title={upcomingJob.description}
-          subtitle={upcomingJob.scheduledDate ? `Scheduled for ${formatDate(upcomingJob.scheduledDate)}` : "Date to be confirmed"}
-          status={upcomingJob.status as any}
-          onPress={() =>
-            navigation.navigate("JobDetail", { jobId: upcomingJob.id })
-          }
-          testID="card-upcoming-job"
-        />
-      ) : (
-        <SummaryCard
-          icon="check-circle"
-          title="No Upcoming Jobs"
-          subtitle="All caught up!"
-        />
-      )}
-
-      {pendingInvoices.length > 0 ? (
-        <>
-          <SectionHeader
-            title="Pending Invoices"
-            actionLabel="View all"
-            onAction={() => navigation.navigate("Main", { screen: "ServicesTab" })}
-          />
-          <SummaryCard
-            icon="file-text"
-            title={`${pendingInvoices.length} invoice${pendingInvoices.length > 1 ? "s" : ""} pending`}
-            subtitle={`Total: £${pendingInvoices.reduce((sum, i) => sum + i.amount, 0).toFixed(2)}`}
-            status="pending"
-            onPress={() => navigation.navigate("Main", { screen: "ServicesTab" })}
-            testID="card-pending-invoices"
-          />
-        </>
-      ) : null}
-
-      <SectionHeader title="Explore Our Services" />
-      <View style={styles.promoGrid}>
         {[
           {
             icon: "sun" as const,
             title: "Solar + Battery",
-            subtitle: "Free video survey — cut bills 70%",
+            subtitle: "Cut energy bills by up to 70%",
             color: "#F59E0B",
+            bgColor: "#FEF3C7",
             link: "https://cal.keystoneai.tech/lee/solar-video-survey",
           },
           {
             icon: "battery-charging" as const,
-            title: "EV Chargers",
-            subtitle: "Free video quote — OZEV approved",
+            title: "EV Charger",
+            subtitle: "OZEV approved — £350 grant",
             color: "#10B981",
+            bgColor: "#D1FAE5",
             link: "https://cal.keystoneai.tech/lee/ev-charger-video-call",
           },
           {
             icon: "thermometer" as const,
-            title: "Heat Pumps",
-            subtitle: "Free video survey — MCS certified",
+            title: "Heat Pump",
+            subtitle: "MCS certified — £7,500 BUS grant",
             color: "#3B82F6",
+            bgColor: "#DBEAFE",
             link: "https://cal.keystoneai.tech/phil/ashp-video-survey",
           },
           {
             icon: "droplet" as const,
-            title: "Boiler Quote",
-            subtitle: "Free home survey — Gas Safe",
+            title: "New Boiler",
+            subtitle: "Free home survey, finance available",
             color: "#EF4444",
+            bgColor: "#FEE2E2",
             link: "https://cal.keystoneai.tech/phil/boiler-home-survey",
           },
-          {
-            icon: "wind" as const,
-            title: "Air Conditioning",
-            subtitle: "F-Gas certified installation",
-            color: "#8B5CF6",
-          },
-        ].map((promo) => (
+        ].map((item) => (
           <Pressable
-            key={promo.title}
-            style={[styles.promoCard, { backgroundColor: theme.backgroundDefault }]}
-            onPress={() => {
-              if (promo.link) {
-                if (typeof window !== "undefined") {
-                  window.open(promo.link, "_blank");
-                } else {
-                  require("react-native").Linking.openURL(promo.link);
-                }
-              } else {
-                navigation.navigate("BookService", {});
-              }
-            }}
+            key={item.title}
+            style={[styles.quoteCard, { backgroundColor: theme.backgroundDefault }, Shadows.small]}
+            onPress={() => openLink(item.link)}
           >
-            <View style={[styles.promoIcon, { backgroundColor: promo.color + "20" }]}>
-              <Feather name={promo.icon} size={22} color={promo.color} />
+            <View style={[styles.serviceIconBox, { backgroundColor: item.bgColor }]}>
+              <Feather name={item.icon} size={22} color={item.color} />
             </View>
-            <ThemedText type="small" style={{ fontWeight: "600", marginTop: Spacing.sm }}>
-              {promo.title}
-            </ThemedText>
-            <ThemedText type="small" style={{ color: theme.textSecondary, fontSize: 11, marginTop: 2 }}>
-              {promo.subtitle}
-            </ThemedText>
+            <View style={{ flex: 1 }}>
+              <ThemedText type="body" style={styles.serviceCardTitle}>{item.title}</ThemedText>
+              <ThemedText type="small" style={{ color: theme.textSecondary, fontSize: 12, marginTop: 2 }}>
+                {item.subtitle}
+              </ThemedText>
+            </View>
+            <Feather name="chevron-right" size={20} color={theme.textSecondary} />
           </Pressable>
         ))}
-      </View>
 
-      <View style={[styles.referralBanner, { backgroundColor: theme.primary + "10", borderColor: theme.primary + "30" }]}>
-        <Feather name="gift" size={24} color={theme.primary} />
-        <View style={{ flex: 1, marginLeft: Spacing.md }}>
-          <ThemedText type="body" style={{ fontWeight: "600" }}>Refer a Friend</ThemedText>
-          <ThemedText type="small" style={{ color: theme.textSecondary }}>
-            Recommend us and you both get £100 off your next service
-          </ThemedText>
-        </View>
-      </View>
+        {/* REFER A FRIEND */}
+        <Pressable style={[styles.referralBanner, { backgroundColor: theme.primary }]}>
+          <Feather name="gift" size={28} color="#FFFFFF" />
+          <View style={{ flex: 1, marginLeft: Spacing.md }}>
+            <ThemedText type="body" style={{ fontWeight: "700", color: "#FFFFFF" }}>
+              Refer a Friend
+            </ThemedText>
+            <ThemedText type="small" style={{ color: "#FFFFFF", opacity: 0.9, fontSize: 12, marginTop: 2 }}>
+              You both get £100 off your next service
+            </ThemedText>
+          </View>
+        </Pressable>
       </ScrollView>
     </View>
   );
@@ -625,60 +554,72 @@ const styles = StyleSheet.create({
   scrollContent: {
     flex: 1,
   },
-  greeting: {
-    marginBottom: Spacing.md,
-  },
-  greetingSubtitle: {
-    marginTop: Spacing.xs,
-  },
   propertySelector: {
     marginTop: Spacing.md,
-  },
-  announcementCard: {
-    flexDirection: "row",
-    padding: Spacing.md,
-    borderRadius: 10,
-    borderWidth: 1,
-    marginBottom: Spacing.sm,
-  },
-  serviceStatusCard: {
-    flexDirection: "row",
-    alignItems: "center",
-    padding: Spacing.lg,
-    borderRadius: 12,
-    marginBottom: Spacing.sm,
-  },
-  quickActions: {
-    flexDirection: "row",
-  },
-  quickActionSpacer: {
-    width: Spacing.md,
-  },
-  promoGrid: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: Spacing.sm,
     marginBottom: Spacing.lg,
   },
-  promoCard: {
-    width: "48%" as any,
+  topBanner: {
+    borderRadius: BorderRadius.md,
+    borderWidth: 1,
     padding: Spacing.md,
-    borderRadius: 12,
+    marginBottom: Spacing.lg,
+  },
+  topBannerContent: {
+    flexDirection: "row",
     alignItems: "center",
   },
-  promoIcon: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    justifyContent: "center",
+  sectionHeading: {
+    fontWeight: "700",
+    marginTop: Spacing.lg,
+    marginBottom: Spacing.md,
+  },
+  serviceCard: {
+    flexDirection: "row",
     alignItems: "center",
+    padding: Spacing.md,
+    borderRadius: BorderRadius.md,
+    marginBottom: Spacing.sm,
+  },
+  serviceCardOverdue: {
+    borderLeftWidth: 4,
+    borderLeftColor: "#DC2626",
+  },
+  serviceCardTitle: {
+    fontWeight: "600",
+  },
+  serviceIconBox: {
+    width: 48,
+    height: 48,
+    borderRadius: BorderRadius.md,
+    alignItems: "center",
+    justifyContent: "center",
+    marginRight: Spacing.md,
+  },
+  overdueLabel: {
+    color: "#DC2626",
+    fontWeight: "700",
+    fontSize: 11,
+    marginTop: 2,
+    letterSpacing: 0.3,
+  },
+  emptyCard: {
+    alignItems: "center",
+    padding: Spacing.xl,
+    borderRadius: BorderRadius.md,
+    marginBottom: Spacing.sm,
+  },
+  quoteCard: {
+    flexDirection: "row",
+    alignItems: "center",
+    padding: Spacing.md,
+    borderRadius: BorderRadius.md,
+    marginBottom: Spacing.sm,
   },
   referralBanner: {
     flexDirection: "row",
     alignItems: "center",
     padding: Spacing.lg,
-    borderRadius: 12,
-    borderWidth: 1,
-    marginBottom: Spacing.lg,
+    borderRadius: BorderRadius.md,
+    marginTop: Spacing.lg,
   },
 });

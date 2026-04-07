@@ -63,7 +63,9 @@ export default function BookServiceScreen() {
   const serviceName = route.params?.serviceName;
   const serviceReminderId = route.params?.serviceReminderId;
 
-  const [step, setStep] = useState<"select" | "appointments" | "confirm">(preselectedId ? "appointments" : "select");
+  const [step, setStep] = useState<"select" | "appointments" | "confirm">(
+    preselectedId || serviceName || serviceReminderId ? "appointments" : "select"
+  );
   const [allServices, setAllServices] = useState<JobDescription[]>([]);
   const [categories, setCategories] = useState<ServiceCategory[]>([]);
   const [selectedJob, setSelectedJob] = useState<JobDescription | null>(null);
