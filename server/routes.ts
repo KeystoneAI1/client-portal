@@ -6,6 +6,300 @@ import { sendVerificationCode, isTwilioConfigured } from "./sms";
 
 import Anthropic from "@anthropic-ai/sdk";
 
+// Inline single-page admin UI. Served at GET /admin. Auth is via the same
+// X-Admin-Key header the JSON endpoints require — the page caches it in
+// localStorage after the first successful request and offers a Sign out button.
+const ADMIN_HTML = `<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Aquila Client Portal — Admin</title>
+<style>
+  :root { --primary:#1E5A8E; --bg:#F8F9FA; --card:#fff; --border:#E5E7EB; --text:#111827; --muted:#6B7280; --warn:#FEF3C7; --warnBorder:#FCD34D; --warnText:#92400E; --offer:#D1FAE5; --offerBorder:#6EE7B7; --offerText:#047857; --info:#DBEAFE; --infoBorder:#93C5FD; --infoText:#1E40AF; --update:#E0E7FF; --updateBorder:#A5B4FC; --updateText:#3730A3; --danger:#DC2626; }
+  *{box-sizing:border-box}
+  body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;margin:0;background:var(--bg);color:var(--text)}
+  header{background:var(--primary);color:#fff;padding:18px 24px;display:flex;align-items:center;justify-content:space-between}
+  header h1{margin:0;font-size:18px;font-weight:600}
+  header .right{display:flex;gap:12px;align-items:center}
+  header button{background:rgba(255,255,255,.15);color:#fff;border:1px solid rgba(255,255,255,.3);padding:6px 12px;border-radius:6px;cursor:pointer;font-size:13px}
+  header button:hover{background:rgba(255,255,255,.25)}
+  main{max-width:900px;margin:0 auto;padding:24px}
+  .card{background:var(--card);border:1px solid var(--border);border-radius:10px;padding:20px;margin-bottom:16px}
+  .login{max-width:420px;margin:80px auto}
+  .login h2{margin-top:0}
+  label{display:block;font-size:13px;font-weight:600;margin-bottom:6px;color:var(--text)}
+  input,textarea,select{width:100%;padding:10px 12px;border:1px solid var(--border);border-radius:8px;font-size:14px;font-family:inherit}
+  input:focus,textarea:focus,select:focus{outline:none;border-color:var(--primary)}
+  textarea{resize:vertical;min-height:80px}
+  .row{display:flex;gap:12px;margin-bottom:14px}
+  .row>div{flex:1}
+  .btn{background:var(--primary);color:#fff;border:none;padding:10px 18px;border-radius:8px;cursor:pointer;font-size:14px;font-weight:600}
+  .btn:hover{opacity:.9}
+  .btn-secondary{background:#fff;color:var(--text);border:1px solid var(--border)}
+  .btn-danger{background:var(--danger);color:#fff;border:none}
+  .btn-sm{padding:6px 12px;font-size:13px}
+  .err{color:var(--danger);font-size:13px;margin-top:8px}
+  .ann{display:flex;align-items:flex-start;gap:14px;padding:14px;border:1px solid var(--border);border-radius:10px;margin-bottom:10px;background:#fff}
+  .ann.inactive{opacity:.55}
+  .badge{display:inline-block;padding:3px 8px;border-radius:5px;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.3px}
+  .badge.warning{background:var(--warn);color:var(--warnText)}
+  .badge.offer{background:var(--offer);color:var(--offerText)}
+  .badge.info{background:var(--info);color:var(--infoText)}
+  .badge.update{background:var(--update);color:var(--updateText)}
+  .ann-body{flex:1;min-width:0}
+  .ann-title{font-weight:700;margin:6px 0 4px 0}
+  .ann-msg{color:var(--muted);font-size:13px;line-height:1.5}
+  .ann-meta{font-size:11px;color:var(--muted);margin-top:6px}
+  .ann-actions{display:flex;flex-direction:column;gap:6px}
+  h2{font-size:18px;margin:0 0 12px 0}
+  h3{font-size:15px;margin:24px 0 10px 0;color:var(--muted);text-transform:uppercase;letter-spacing:.5px}
+  .empty{text-align:center;padding:30px;color:var(--muted);font-size:14px}
+  .toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:#111;color:#fff;padding:10px 18px;border-radius:8px;font-size:13px;opacity:0;transition:opacity .2s;pointer-events:none}
+  .toast.show{opacity:1}
+</style>
+</head>
+<body>
+<div id="root"></div>
+<div id="toast" class="toast"></div>
+<script>
+const API = window.location.origin;
+const KEY_STORAGE = "aquila_admin_key";
+let adminKey = localStorage.getItem(KEY_STORAGE) || "";
+let editingId = null;
+
+function toast(msg) {
+  const el = document.getElementById("toast");
+  el.textContent = msg;
+  el.classList.add("show");
+  setTimeout(() => el.classList.remove("show"), 2200);
+}
+
+function escapeHtml(s) {
+  return String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+}
+
+async function api(method, path, body) {
+  const r = await fetch(API + path, {
+    method,
+    headers: { "Content-Type": "application/json", "X-Admin-Key": adminKey },
+    body: body ? JSON.stringify(body) : undefined,
+  });
+  if (r.status === 401) {
+    localStorage.removeItem(KEY_STORAGE);
+    adminKey = "";
+    render();
+    throw new Error("Invalid admin key");
+  }
+  if (!r.ok) throw new Error("Request failed: " + r.status);
+  return r.json();
+}
+
+async function loadAnnouncements() {
+  try {
+    const d = await api("GET", "/api/admin/announcements");
+    return d.announcements || [];
+  } catch (e) { return []; }
+}
+
+function renderLogin(err) {
+  document.getElementById("root").innerHTML = \`
+    <main>
+      <div class="card login">
+        <h2>Admin Sign In</h2>
+        <p style="color:var(--muted);font-size:13px;margin-top:0">Enter the admin key to manage announcements and offers.</p>
+        <form id="loginForm">
+          <label for="keyInput">Admin Key</label>
+          <input id="keyInput" type="password" autocomplete="current-password" placeholder="••••••••" required>
+          <div style="margin-top:14px;display:flex;justify-content:flex-end">
+            <button class="btn" type="submit">Sign in</button>
+          </div>
+          \${err ? \`<div class="err">\${escapeHtml(err)}</div>\` : ""}
+        </form>
+      </div>
+    </main>\`;
+  document.getElementById("loginForm").addEventListener("submit", async e => {
+    e.preventDefault();
+    const v = document.getElementById("keyInput").value.trim();
+    if (!v) return;
+    adminKey = v;
+    try {
+      await api("GET", "/api/admin/announcements");
+      localStorage.setItem(KEY_STORAGE, v);
+      render();
+    } catch (err) {
+      adminKey = "";
+      renderLogin("Invalid admin key");
+    }
+  });
+}
+
+function announcementCard(a) {
+  const expires = a.expiresAt ? new Date(a.expiresAt).toLocaleDateString("en-GB", { day:"numeric", month:"short", year:"numeric" }) : "no expiry";
+  return \`
+    <div class="ann \${a.active ? "" : "inactive"}">
+      <div class="ann-body">
+        <span class="badge \${escapeHtml(a.type || "info")}">\${escapeHtml(a.type || "info")}</span>
+        <div class="ann-title">\${escapeHtml(a.title)}</div>
+        <div class="ann-msg">\${escapeHtml(a.message)}</div>
+        \${a.link ? \`<div class="ann-meta">↗ <a href="\${escapeHtml(a.link)}" target="_blank" rel="noopener">\${escapeHtml(a.linkText || a.link)}</a></div>\` : ""}
+        <div class="ann-meta">\${a.active ? "Active" : "Hidden"} · expires \${expires} · id \${escapeHtml(a.id)}</div>
+      </div>
+      <div class="ann-actions">
+        <button class="btn btn-secondary btn-sm" data-edit="\${escapeHtml(a.id)}">Edit</button>
+        <button class="btn btn-danger btn-sm" data-delete="\${escapeHtml(a.id)}">\${a.active ? "Hide" : "Hidden"}</button>
+      </div>
+    </div>\`;
+}
+
+async function renderHome() {
+  const list = await loadAnnouncements();
+  const editing = editingId ? list.find(a => a.id === editingId) : null;
+
+  document.getElementById("root").innerHTML = \`
+    <header>
+      <h1>Aquila Client Portal — Admin</h1>
+      <div class="right">
+        <button id="logout">Sign out</button>
+      </div>
+    </header>
+    <main>
+      <div class="card">
+        <h2>\${editing ? "Edit announcement" : "New announcement"}</h2>
+        <form id="annForm">
+          <div class="row">
+            <div>
+              <label>Type</label>
+              <select id="f_type">
+                <option value="info">Info</option>
+                <option value="offer">Offer</option>
+                <option value="warning">Warning / Price update</option>
+                <option value="update">Update</option>
+              </select>
+            </div>
+            <div>
+              <label>Expires (optional)</label>
+              <input id="f_expires" type="date">
+            </div>
+          </div>
+          <div style="margin-bottom:14px">
+            <label>Title</label>
+            <input id="f_title" required maxlength="100" placeholder="Service Price Update — April 2026">
+          </div>
+          <div style="margin-bottom:14px">
+            <label>Message</label>
+            <textarea id="f_message" required maxlength="500" placeholder="Please note our service prices have been updated…"></textarea>
+          </div>
+          <div class="row">
+            <div>
+              <label>Link URL (optional)</label>
+              <input id="f_link" type="url" placeholder="https://cal.keystoneai.tech/...">
+            </div>
+            <div>
+              <label>Link button text</label>
+              <input id="f_linkText" maxlength="40" placeholder="Book Now">
+            </div>
+          </div>
+          <div style="display:flex;gap:8px;justify-content:flex-end">
+            \${editing ? '<button type="button" id="cancelEdit" class="btn btn-secondary">Cancel</button>' : ""}
+            <button type="submit" class="btn">\${editing ? "Save changes" : "Create announcement"}</button>
+          </div>
+        </form>
+      </div>
+
+      <h3>Active (\${list.filter(a => a.active).length})</h3>
+      \${list.filter(a => a.active).map(announcementCard).join("") || '<div class="empty">No active announcements.</div>'}
+
+      <h3>Hidden (\${list.filter(a => !a.active).length})</h3>
+      \${list.filter(a => !a.active).map(announcementCard).join("") || '<div class="empty">No hidden announcements.</div>'}
+    </main>\`;
+
+  if (editing) {
+    document.getElementById("f_type").value = editing.type || "info";
+    document.getElementById("f_title").value = editing.title || "";
+    document.getElementById("f_message").value = editing.message || "";
+    document.getElementById("f_link").value = editing.link || "";
+    document.getElementById("f_linkText").value = editing.linkText || "";
+    if (editing.expiresAt) {
+      document.getElementById("f_expires").value = editing.expiresAt.slice(0,10);
+    }
+  }
+
+  document.getElementById("logout").addEventListener("click", () => {
+    localStorage.removeItem(KEY_STORAGE);
+    adminKey = "";
+    editingId = null;
+    render();
+  });
+
+  if (editing) {
+    document.getElementById("cancelEdit").addEventListener("click", () => {
+      editingId = null;
+      render();
+    });
+  }
+
+  document.getElementById("annForm").addEventListener("submit", async e => {
+    e.preventDefault();
+    const body = {
+      type: document.getElementById("f_type").value,
+      title: document.getElementById("f_title").value.trim(),
+      message: document.getElementById("f_message").value.trim(),
+      link: document.getElementById("f_link").value.trim() || undefined,
+      linkText: document.getElementById("f_linkText").value.trim() || undefined,
+      expiresAt: document.getElementById("f_expires").value
+        ? new Date(document.getElementById("f_expires").value).toISOString()
+        : undefined,
+    };
+    try {
+      if (editing) {
+        await api("PUT", "/api/admin/announcements/" + editing.id, body);
+        toast("Updated");
+      } else {
+        await api("POST", "/api/admin/announcements", body);
+        toast("Created");
+      }
+      editingId = null;
+      render();
+    } catch (err) {
+      toast("Failed: " + err.message);
+    }
+  });
+
+  document.querySelectorAll("[data-edit]").forEach(b => {
+    b.addEventListener("click", () => {
+      editingId = b.getAttribute("data-edit");
+      render();
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    });
+  });
+
+  document.querySelectorAll("[data-delete]").forEach(b => {
+    b.addEventListener("click", async () => {
+      const id = b.getAttribute("data-delete");
+      const a = list.find(x => x.id === id);
+      if (!a || !a.active) return;
+      if (!confirm("Hide \\"" + a.title + "\\"? Customers will no longer see it.")) return;
+      try {
+        await api("DELETE", "/api/admin/announcements/" + id);
+        toast("Hidden");
+        render();
+      } catch (err) {
+        toast("Failed: " + err.message);
+      }
+    });
+  });
+}
+
+function render() {
+  if (!adminKey) renderLogin();
+  else renderHome();
+}
+render();
+</script>
+</body>
+</html>`;
+
 const customerPasswords: Map<string, string> = new Map();
 
 // Track which customers have installed/used the app
@@ -536,9 +830,10 @@ TONE:
     res.json({ announcements: active });
   });
 
-  // Admin auth check
+  // Admin auth check. Accept either ADMIN_API_KEY or ADMIN_KEY env var so the
+  // deploy command and the historical code variable both work.
   const requireAdmin = (req: Request, res: Response, next: Function) => {
-    const adminKey = process.env.ADMIN_API_KEY || "aquila-admin-2026";
+    const adminKey = process.env.ADMIN_API_KEY || process.env.ADMIN_KEY || "aquila-admin-2026";
     const provided = req.header("X-Admin-Key") || req.query.admin_key;
     if (provided !== adminKey) {
       return res.status(401).json({ error: "Unauthorized" });
@@ -587,6 +882,22 @@ TONE:
   app.get("/api/admin/app-users", requireAdmin, (_req: Request, res: Response) => {
     const users = Array.from(appUsers.values());
     res.json({ count: users.length, users });
+  });
+
+  // Admin: list ALL announcements (active + inactive) for management UI
+  app.get("/api/admin/announcements", requireAdmin, (_req: Request, res: Response) => {
+    res.json({ announcements });
+  });
+
+  // Admin web page — single-file HTML with login + announcement CRUD.
+  // Registered before the SPA fallback so /admin doesn't fall through to the customer app.
+  app.get("/admin", (_req: Request, res: Response) => {
+    res.setHeader("Content-Type", "text/html; charset=utf-8");
+    res.send(ADMIN_HTML);
+  });
+  app.get("/admin/", (_req: Request, res: Response) => {
+    res.setHeader("Content-Type", "text/html; charset=utf-8");
+    res.send(ADMIN_HTML);
   });
 
   app.get("/api/health", (_req: Request, res: Response) => {

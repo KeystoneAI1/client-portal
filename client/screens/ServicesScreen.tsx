@@ -46,12 +46,15 @@ export default function ServicesScreen() {
   const [sections, setSections] = useState<SectionData[]>([]);
 
   const loadData = useCallback(async () => {
-    const customerId = user?.accountNumber || user?.id;
+    // Query the SELECTED property as a customer ID. Workaddresses are
+    // queryable like customers in Commusoft, so this scopes job history,
+    // plans, invoices and certificates to whichever property the user picks.
+    const customerId = selectedProperty?.id || user?.accountNumber || user?.id;
     let jobs: Job[] = [];
     let plans: ServicePlan[] = [];
     let invoices: Invoice[] = [];
     let certificates: Certificate[] = [];
-    
+
     if (customerId) {
       try {
         const jobsResponse = await fetch(

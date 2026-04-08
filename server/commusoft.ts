@@ -278,6 +278,187 @@ export async function getPropertyServiceReminders(customerId: string) {
   });
 }
 
+/**
+ * Returns property service reminders enriched with `serviceTypeName` and
+ * `settingsjobdescriptionid` fields, derived by joining the customer's jobs
+ * (which have `servicereminderinstances` → `jobdescriptionid`) with the
+ * actual job description text and the system service reminder catalogue.
+ *
+ * The bare Commusoft /propertyservicereminders endpoint does not return any
+ * service-type info, so without this join the client can't tell a Boiler
+ * Service from an AC Service — both come back as anonymous reminder records.
+ *
+ * Resolution order for the displayed name:
+ *   1. Direct back-link: find a job whose `servicereminderinstances` equals
+ *      this reminder's id. Use that job's `description` field (matches what
+ *      Commusoft web shows in the job history).
+ *   2. If no back-link but exactly one historical service job exists, fall
+ *      back to that single job's description (still confident).
+ *   3. Otherwise leave `serviceTypeName` null. The client renders a generic
+ *      "Service Reminder" label instead of inventing a wrong one.
+ */
+export async function getEnrichedPropertyServiceReminders(customerId: string) {
+  const [remindersResult, jobsResult, systemResult] = await Promise.all([
+    getPropertyServiceReminders(customerId).catch(() => null),
+    getJobs(customerId).catch(() => null),
+    getServiceReminders().catch(() => null),
+  ]);
+
+  const reminders: any[] = (remindersResult as any)?.servicereminder || [];
+  const jobs: any[] = (jobsResult as any)?.Jobs || (jobsResult as any)?.jobs || [];
+  const systemReminders: any[] = (systemResult as any)?.servicereminders || [];
+
+  // System reminder catalogue: jdid -> first matching system reminder name.
+  // Multiple system reminders can share a jobdescriptionid; we keep the first
+  // one only as a final fallback. The job's own description is preferred.
+  const jdIdToSystemName = new Map<string, string>();
+  for (const sr of systemReminders) {
+    if (sr.settingsjobdescriptionid != null && sr.name) {
+      const k = String(sr.settingsjobdescriptionid);
+      if (!jdIdToSystemName.has(k)) jdIdToSystemName.set(k, sr.name);
+    }
+  }
+
+  // Reminder back-link: which job booked this reminder instance?
+  // Job.servicereminderinstances may be a single id or a comma-separated list.
+  const reminderIdToJob = new Map<string, any>();
+  for (const j of jobs) {
+    const sri = j.servicereminderinstances;
+    if (sri == null) continue;
+    const ids = String(sri).split(",").map((s) => s.trim()).filter(Boolean);
+    for (const id of ids) {
+      // Prefer the most recent job for any given reminder id
+      const existing = reminderIdToJob.get(id);
+      if (!existing) {
+        reminderIdToJob.set(id, j);
+      } else {
+        const a = j.completedon || j.startdatetime || "";
+        const b = existing.completedon || existing.startdatetime || "";
+        if (a > b) reminderIdToJob.set(id, j);
+      }
+    }
+  }
+
+  // For unmapped reminders we still try to be useful: if the customer has
+  // exactly one distinct service-type history, that's a confident guess.
+  const distinctHistoricalJdIds = new Set<string>();
+  for (const j of jobs) {
+    if (j.jobdescriptionid != null && j.isservicejob) {
+      distinctHistoricalJdIds.add(String(j.jobdescriptionid));
+    }
+  }
+  const singleHistoricalJdId =
+    distinctHistoricalJdIds.size === 1 ? Array.from(distinctHistoricalJdIds)[0] : null;
+
+  function cleanJobDescription(desc: string | null | undefined): string | null {
+    if (!desc) return null;
+    // Commusoft job descriptions often have double spaces and a "Domestic - " prefix.
+    return desc.replace(/\s+/g, " ").replace(/^Domestic\s*-\s*/i, "").trim();
+  }
+
+  type Enriched = {
+    raw: any;
+    jdId: string | null;
+    serviceTypeName: string | null;
+    serviceTypeSource: "exact" | "single-history" | "paired-history" | "unknown";
+  };
+
+  const enrichedDraft: Enriched[] = reminders.map((r) => {
+    let jdId: string | null = null;
+    let serviceTypeName: string | null = null;
+    let serviceTypeSource: Enriched["serviceTypeSource"] = "unknown";
+
+    const linkedJob = reminderIdToJob.get(String(r.id));
+    if (linkedJob) {
+      jdId = linkedJob.jobdescriptionid != null ? String(linkedJob.jobdescriptionid) : null;
+      serviceTypeName =
+        cleanJobDescription(linkedJob.description) ||
+        (jdId ? jdIdToSystemName.get(jdId) || null : null);
+      serviceTypeSource = "exact";
+    } else if (singleHistoricalJdId) {
+      // Customer only ever has one type of service job — confident enough to label.
+      const sample = jobs.find(
+        (j) => j.isservicejob && String(j.jobdescriptionid) === singleHistoricalJdId,
+      );
+      jdId = singleHistoricalJdId;
+      serviceTypeName =
+        cleanJobDescription(sample?.description) ||
+        jdIdToSystemName.get(singleHistoricalJdId) ||
+        null;
+      serviceTypeSource = "single-history";
+    }
+
+    return { raw: r, jdId, serviceTypeName, serviceTypeSource };
+  });
+
+  // Pairing fallback: when the number of unmapped reminders matches the number
+  // of distinct historical service types AND those historical types each have
+  // a sample job, deterministically pair them by due-date order. This handles
+  // the common case where each property has e.g. one boiler reminder and one
+  // EICR reminder recurring on different cadences.
+  const unmapped = enrichedDraft.filter((e) => e.serviceTypeSource === "unknown");
+  const usedJdIds = new Set(
+    enrichedDraft
+      .filter((e) => e.serviceTypeSource === "exact" && e.jdId)
+      .map((e) => e.jdId as string),
+  );
+  const availableJdIds = Array.from(distinctHistoricalJdIds).filter(
+    (id) => !usedJdIds.has(id),
+  );
+
+  if (unmapped.length > 0 && unmapped.length === availableJdIds.length) {
+    // Sample-job-per-jdid, sorted by service period (shorter cadence first).
+    const samples = availableJdIds
+      .map((id) => {
+        const sample = jobs
+          .filter((j) => j.isservicejob && String(j.jobdescriptionid) === id)
+          .sort((a, b) => (b.completedon || "").localeCompare(a.completedon || ""))[0];
+        return { id, sample };
+      })
+      .filter((s) => s.sample);
+
+    // Compute estimated cadence for each sample by checking the matching system
+    // reminder type's serviceperiod.
+    function periodForJdId(id: string): number {
+      const sr = systemReminders.find(
+        (s: any) => String(s.settingsjobdescriptionid) === id,
+      );
+      return sr?.serviceperiod || 12;
+    }
+
+    const sortedByPeriod = samples.sort(
+      (a, b) => periodForJdId(a.id) - periodForJdId(b.id),
+    );
+    const sortedUnmapped = [...unmapped].sort((a, b) => {
+      const da = a.raw.duedate || "";
+      const db = b.raw.duedate || "";
+      return da.localeCompare(db);
+    });
+
+    if (sortedByPeriod.length === sortedUnmapped.length) {
+      for (let i = 0; i < sortedUnmapped.length; i++) {
+        const target = sortedUnmapped[i];
+        const slot = sortedByPeriod[i];
+        target.jdId = slot.id;
+        target.serviceTypeName =
+          cleanJobDescription(slot.sample.description) ||
+          jdIdToSystemName.get(slot.id) ||
+          null;
+        target.serviceTypeSource = "paired-history";
+      }
+    }
+  }
+
+  const enriched = enrichedDraft.map((e) => ({
+    ...e.raw,
+    settingsjobdescriptionid: e.jdId ? Number(e.jdId) : null,
+    serviceTypeName: e.serviceTypeName,
+    serviceTypeSource: e.serviceTypeSource,
+  }));
+
+  return { servicereminder: enriched };
+}
+
 export async function getInvoice(customerId: string, jobId: string, invoiceId: string) {
   return commusoftRequest({
     endpoint: `/api/v1/customers/${customerId}/jobs/${jobId}/invoices/${invoiceId}`,
@@ -747,7 +928,7 @@ export function registerCommusoftRoutes(app: any) {
       if (!isCommusoftConfigured()) {
         return res.status(503).json({ error: "Commusoft API not configured" });
       }
-      const data = await getPropertyServiceReminders(req.params.customerId);
+      const data = await getEnrichedPropertyServiceReminders(req.params.customerId);
       res.json(data);
     } catch (error) {
       console.error("Failed to get property service reminders:", error);

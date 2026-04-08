@@ -65,14 +65,15 @@ export default function HomeScreen() {
   const [announcements, setAnnouncements] = useState<any[]>([]);
 
   const loadServiceReminders = useCallback(async () => {
-    const customerId = user?.accountNumber || user?.id;
-    if (!customerId) return;
+    // Query against the SELECTED property — Commusoft treats workaddresses
+    // as queryable customers, so each property has its own reminder feed.
+    const propertyId = selectedProperty?.id || user?.accountNumber || user?.id;
+    if (!propertyId) return;
 
     try {
-      const [propertyRemindersResponse, systemRemindersResponse] = await Promise.all([
-        fetch(new URL(`/api/commusoft/customer/${customerId}/propertyservicereminders`, getApiUrl()).toString()),
-        fetch(new URL("/api/commusoft/servicereminders", getApiUrl()).toString()),
-      ]);
+      const propertyRemindersResponse = await fetch(
+        new URL(`/api/commusoft/customer/${propertyId}/propertyservicereminders`, getApiUrl()).toString()
+      );
 
       const now = new Date();
       const statuses: ServiceStatus[] = [];
@@ -81,45 +82,26 @@ export default function HomeScreen() {
         const propData = await propertyRemindersResponse.json();
         const propReminders = propData.servicereminder || [];
 
-        let systemReminders: ServiceReminder[] = [];
-        if (systemRemindersResponse.ok) {
-          systemReminders = (await systemRemindersResponse.json()).servicereminders || [];
-        }
-
         for (const pr of propReminders) {
           const dueDate = pr.duedate ? new Date(pr.duedate) : null;
           const reminderDate = pr.reminderdate ? new Date(pr.reminderdate) : null;
           const isOverdue = dueDate ? dueDate.getTime() < now.getTime() : false;
 
-          // Match by settingsserviceremindersid if available
-          const matchingSystemReminder = systemReminders.find((sr: ServiceReminder) =>
-            sr.id === pr.settingsserviceremindersid
-          );
-
-          // Try to infer service type from contractName or default to most common boiler service
-          let serviceName = matchingSystemReminder?.name || pr.contractName || "Service Due";
-          let jobDescId = matchingSystemReminder?.settingsjobdescriptionid || 0;
-
-          // Fallback: if no match, default to boiler service NG (id 16) — most common
-          if (!jobDescId && systemReminders.length > 0) {
-            const boilerService = systemReminders.find((sr) =>
-              sr.name.toLowerCase().includes("boiler service") &&
-              sr.name.toLowerCase().includes("natural gas")
-            );
-            if (boilerService) {
-              jobDescId = boilerService.settingsjobdescriptionid;
-              if (serviceName === "Service Due") {
-                serviceName = boilerService.name;
-              }
-            }
-          }
+          // Server has already enriched with serviceTypeName / settingsjobdescriptionid
+          // by joining against the customer's job history. If the join didn't find
+          // a match, we leave the label generic instead of inventing one.
+          const serviceName: string =
+            pr.serviceTypeName ||
+            pr.contractName ||
+            "Service Reminder";
+          const jobDescId: number = Number(pr.settingsjobdescriptionid) || 0;
 
           statuses.push({
             reminder: {
               id: pr.id,
               name: serviceName,
               settingsjobdescriptionid: jobDescId,
-              serviceperiod: matchingSystemReminder?.serviceperiod || 12,
+              serviceperiod: 12,
             },
             isDue: isOverdue,
             nextDueDate: dueDate,
@@ -143,12 +125,15 @@ export default function HomeScreen() {
   }, [user, selectedProperty]);
 
   const loadData = useCallback(async () => {
-    const customerId = user?.accountNumber || user?.id;
-    if (!customerId) return;
+    // Query the SELECTED property as a customer ID — workaddresses are
+    // queryable like customers in Commusoft, so this returns only the
+    // selected property's jobs and service plans.
+    const propertyId = selectedProperty?.id || user?.accountNumber || user?.id;
+    if (!propertyId) return;
 
     try {
       const jobsResponse = await fetch(
-        new URL(`/api/commusoft/customer/${customerId}/jobs`, getApiUrl()).toString()
+        new URL(`/api/commusoft/customer/${propertyId}/jobs`, getApiUrl()).toString()
       );
       if (jobsResponse.ok) {
         const jobsData = await jobsResponse.json();
@@ -192,7 +177,7 @@ export default function HomeScreen() {
 
     try {
       const customerResponse = await fetch(
-        new URL(`/api/commusoft/customer/${customerId}`, getApiUrl()).toString()
+        new URL(`/api/commusoft/customer/${propertyId}`, getApiUrl()).toString()
       );
       if (customerResponse.ok) {
         const customerData = await customerResponse.json();
@@ -201,12 +186,13 @@ export default function HomeScreen() {
           const now = new Date();
           const activePlanData = servicePlans.find((p: any) => {
             const expireDate = p.expiredate ? new Date(p.expiredate) : null;
-            return !expireDate || expireDate > now;
+            const disabled = p.isServicePlanDisable === true;
+            return !disabled && (!expireDate || expireDate > now);
           }) || servicePlans[0];
           setActivePlan({
             id: activePlanData.id || "plan-1",
             name: activePlanData.description || activePlanData.name || "Service Plan",
-            status: "active",
+            status: activePlanData.isServicePlanDisable ? "expired" : "active",
             startDate: new Date().toISOString(),
             endDate: activePlanData.expiredate || new Date().toISOString(),
             coverage: [],

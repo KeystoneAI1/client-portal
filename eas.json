@@ -1,6 +1,7 @@
 {
   "cli": {
-    "version": ">= 13.0.0"
+    "version": ">= 13.0.0",
+    "appVersionSource": "remote"
   },
   "build": {
     "development": {
@@ -15,13 +16,23 @@
     },
     "preview": {
       "distribution": "internal",
+      "android": {
+        "buildType": "apk"
+      },
+      "ios": {
+        "simulator": true
+      },
       "env": {
-        "EXPO_PUBLIC_API_URL": "https://client-portal-api-1073885949716.europe-west2.run.app"
+        "EXPO_PUBLIC_API_URL": "https://app.aquila-plumbing.com"
       }
     },
     "production": {
+      "autoIncrement": true,
+      "android": {
+        "buildType": "app-bundle"
+      },
       "env": {
-        "EXPO_PUBLIC_API_URL": "https://client-portal-api-1073885949716.europe-west2.run.app"
+        "EXPO_PUBLIC_API_URL": "https://app.aquila-plumbing.com"
       }
     }
   },
