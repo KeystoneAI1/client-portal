@@ -23,7 +23,17 @@ export type RootStackParamList = {
   Login: undefined;
   Main: NavigatorScreenParams<MainTabParamList>;
   Settings: undefined;
-  BookService: { preselectedJobDescriptionId?: number; serviceName?: string; serviceReminderId?: number } | undefined;
+  BookService:
+    | {
+        preselectedJobDescriptionId?: number;
+        serviceName?: string;
+        serviceReminderId?: number;
+        // "exact" means we're sure this is the right service type and can
+        // skip straight to appointment selection. Anything else (guess) lands
+        // the user on the service picker with a visible confirmation banner.
+        serviceTypeSource?: "exact" | "frequency-history" | "unknown";
+      }
+    | undefined;
   EditContact: { contactId?: string };
   EditAppliance: { applianceId?: string };
   ServicePlanDetail: { planId: string; planName?: string; planStatus?: string; planStartDate?: string; planEndDate?: string };

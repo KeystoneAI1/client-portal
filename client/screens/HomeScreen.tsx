@@ -30,6 +30,12 @@ interface ServiceReminder {
   name: string;
   settingsjobdescriptionid: number;
   serviceperiod: number;
+  // "exact" = reminder has a back-linked job with known jobdescriptionid,
+  // so we're confident the label is correct and can auto-book.
+  // "frequency-history" = we inferred the type from the customer's history;
+  // safe enough to display, but booking must require confirmation.
+  // "unknown" = no label available, show generic and force manual pick.
+  typeSource: "exact" | "frequency-history" | "unknown";
 }
 
 interface ServiceStatus {
@@ -95,6 +101,11 @@ export default function HomeScreen() {
             pr.contractName ||
             "Service Reminder";
           const jobDescId: number = Number(pr.settingsjobdescriptionid) || 0;
+          const typeSource: "exact" | "frequency-history" | "unknown" =
+            pr.serviceTypeSource === "exact" ||
+            pr.serviceTypeSource === "frequency-history"
+              ? pr.serviceTypeSource
+              : "unknown";
 
           statuses.push({
             reminder: {
@@ -102,6 +113,7 @@ export default function HomeScreen() {
               name: serviceName,
               settingsjobdescriptionid: jobDescId,
               serviceperiod: 12,
+              typeSource,
             },
             isDue: isOverdue,
             nextDueDate: dueDate,
@@ -342,6 +354,7 @@ export default function HomeScreen() {
                     preselectedJobDescriptionId: status.reminder.settingsjobdescriptionid || undefined,
                     serviceName: status.reminder.name,
                     serviceReminderId: status.reminder.id,
+                    serviceTypeSource: status.reminder.typeSource,
                   })
                 }
               >

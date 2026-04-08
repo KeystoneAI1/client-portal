@@ -62,10 +62,22 @@ export default function BookServiceScreen() {
   const preselectedId = route.params?.preselectedJobDescriptionId;
   const serviceName = route.params?.serviceName;
   const serviceReminderId = route.params?.serviceReminderId;
+  // "exact" means the server resolved the reminder to a specific job type via
+  // an actual job back-link — safe to skip straight to appointments. Anything
+  // else (heuristic or unknown) is a guess and we must force the customer to
+  // confirm the service type on the picker before touching the diary.
+  const typeSource = route.params?.serviceTypeSource;
+  const autoAdvanceToAppointments = typeSource === "exact";
 
   const [step, setStep] = useState<"select" | "appointments" | "confirm">(
-    preselectedId || serviceName || serviceReminderId ? "appointments" : "select"
+    autoAdvanceToAppointments && (preselectedId || serviceName || serviceReminderId)
+      ? "appointments"
+      : "select",
   );
+  // Show a yellow confirmation banner on the service picker when we arrived
+  // here from a reminder whose type we guessed rather than resolved.
+  const showUnverifiedTypeWarning =
+    (preselectedId || serviceName || serviceReminderId) && !autoAdvanceToAppointments;
   const [allServices, setAllServices] = useState<JobDescription[]>([]);
   const [categories, setCategories] = useState<ServiceCategory[]>([]);
   const [selectedJob, setSelectedJob] = useState<JobDescription | null>(null);
@@ -157,17 +169,22 @@ export default function BookServiceScreen() {
         }));
         setCategories(cats);
 
-        // If preselected, find and select it
+        // Resolve the preselected job without auto-advancing when the type
+        // source is a guess. The selected job is still highlighted on the
+        // picker so the customer can confirm in one tap, but we refuse to
+        // create diary entries automatically from an unverified match.
         if (preselectedId) {
           const matched = descriptions.find((jd) => jd.id === preselectedId);
           if (matched) {
             setSelectedJob(matched);
-            await loadAppointments(matched);
+            if (autoAdvanceToAppointments) {
+              await loadAppointments(matched);
+            }
             return;
           }
         }
 
-        // If service name provided, try to match
+        // Fall back to a name search if no id was supplied.
         if (serviceName) {
           const matched = descriptions.find((jd) =>
             jd.description.toLowerCase().includes(serviceName.toLowerCase()) ||
@@ -175,7 +192,9 @@ export default function BookServiceScreen() {
           );
           if (matched) {
             setSelectedJob(matched);
-            await loadAppointments(matched);
+            if (autoAdvanceToAppointments) {
+              await loadAppointments(matched);
+            }
             return;
           }
         }
@@ -408,6 +427,33 @@ export default function BookServiceScreen() {
           </View>
         ) : null}
 
+        {showUnverifiedTypeWarning ? (
+          <View
+            style={{
+              backgroundColor: "#FEF3C7",
+              borderColor: "#FCD34D",
+              borderWidth: 1,
+              borderRadius: BorderRadius.md,
+              padding: Spacing.md,
+              marginBottom: Spacing.lg,
+              flexDirection: "row",
+              alignItems: "flex-start",
+            }}
+          >
+            <Feather name="alert-triangle" size={18} color="#92400E" style={{ marginTop: 2 }} />
+            <View style={{ flex: 1, marginLeft: Spacing.sm }}>
+              <ThemedText type="small" style={{ fontWeight: "700", color: "#92400E" }}>
+                Please confirm the service type
+              </ThemedText>
+              <ThemedText type="small" style={{ color: "#78350F", marginTop: 2, fontSize: 12 }}>
+                {serviceName
+                  ? `This reminder is for “${serviceName}” — tap to confirm, or choose a different service below.`
+                  : "Tap the correct service below to continue."}
+              </ThemedText>
+            </View>
+          </View>
+        ) : null}
+
         <ThemedText type="h3" style={{ marginBottom: Spacing.lg }}>
           What do you need?
         </ThemedText>
@@ -458,7 +504,10 @@ export default function BookServiceScreen() {
         paddingHorizontal: Spacing.lg,
       }}
     >
-      {!preselectedId ? (
+      {/* Always allow changing the service when the entry was a guess, or
+          when there was no preselection at all. Only hide the back link for
+          exact-match reminders where we're certain the type is right. */}
+      {!preselectedId || !autoAdvanceToAppointments ? (
         <Pressable onPress={() => { setStep("select"); setSelectedJob(null); }} style={styles.backLink}>
           <Feather name="arrow-left" size={16} color={theme.primary} />
           <ThemedText type="small" style={{ color: theme.primary, marginLeft: Spacing.xs }}>
