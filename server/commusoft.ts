@@ -722,7 +722,17 @@ export function registerCommusoftRoutes(app: any) {
       }
       const data = await getAppliances(req.params.customerId);
       res.json(data);
-    } catch (error) {
+    } catch (error: any) {
+      // Commusoft returns 403 "You don't have access to read Customerappliance"
+      // when the API user lacks the Appliances permission. That's the default
+      // for portal/integration accounts and will never be granted, so treat
+      // the endpoint as returning an empty list rather than a hard 500 — the
+      // Account screen will just show "no appliances on file".
+      const msg = String(error?.message || "");
+      if (msg.includes("403")) {
+        console.warn("[CommusoftClient] Appliances read denied for customer", req.params.customerId, "— returning empty list");
+        return res.json({ appliances: [], count: 0, permission: "denied" });
+      }
       console.error("Failed to get appliances:", error);
       res.status(500).json({ error: "Failed to fetch appliances" });
     }
@@ -733,8 +743,13 @@ export function registerCommusoftRoutes(app: any) {
       if (!isCommusoftConfigured()) {
         return res.status(503).json({ error: "Commusoft API not configured" });
       }
-      const data = await getServicePlans(req.params.customerId);
-      res.json(data);
+      // Commusoft has no standalone /service-plans endpoint; the plans live
+      // inside the customer record itself. Fetch the customer and project out
+      // the embedded servicePlans array so existing callers keep working.
+      const customerData: any = await getCustomer(req.params.customerId);
+      const customer = customerData?.Customer || customerData;
+      const plans = customer?.servicePlans || customer?.serviceplans || [];
+      res.json({ servicePlans: plans, count: plans.length });
     } catch (error) {
       console.error("Failed to get service plans:", error);
       res.status(500).json({ error: "Failed to fetch service plans" });
