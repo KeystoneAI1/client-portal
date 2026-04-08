@@ -66,16 +66,24 @@ export default function ServicesScreen() {
           const apiJobs = jobsData.Jobs || jobsData.jobs || [];
           console.log("[HistoryScreen] Jobs from API:", apiJobs.length);
           
-          jobs = apiJobs.map((j: any) => ({
-            id: String(j.id || j.jobid),
-            description: j.description || j.jobdescription || "Service",
-            scheduledDate: j.completedon || j.startdatetime || j.createddate || "",
-            completedDate: j.completedon || "",
-            status: (j.status || "completed").toLowerCase() as Job["status"],
-            engineerName: j.engineername || "",
-            invoiceId: j.invoiceid ? String(j.invoiceid) : undefined,
-            certificateId: j.certificateid ? String(j.certificateid) : undefined,
-          }));
+          jobs = apiJobs
+            .filter((j: any) => !j.isJobDeleted)
+            .map((j: any) => ({
+              id: String(j.id || j.jobid),
+              description: j.description || j.jobdescription || "Service",
+              scheduledDate: j.completedon || j.startdatetime || j.createddate || "",
+              completedDate: j.completedon || "",
+              status: (j.status || "completed").toLowerCase() as Job["status"],
+              engineerName: j.engineername || "",
+              invoiceId: j.invoiceid ? String(j.invoiceid) : undefined,
+              certificateId: j.certificateid ? String(j.certificateid) : undefined,
+            }))
+            // Newest first — sort by most recent of completed/scheduled/created.
+            .sort((a: Job, b: Job) => {
+              const ad = a.completedDate || a.scheduledDate || "";
+              const bd = b.completedDate || b.scheduledDate || "";
+              return bd.localeCompare(ad);
+            });
           await storage.setJobs(jobs);
         }
         
@@ -109,16 +117,20 @@ export default function ServicesScreen() {
           if (invoicesResponse.ok) {
             const invoicesData = await invoicesResponse.json();
             const apiInvoices = invoicesData.invoices || [];
-            invoices = apiInvoices.map((inv: any) => ({
-              id: String(inv.id),
-              invoiceNumber: inv.invoicenumber || inv.id?.toString() || "",
-              amount: parseFloat(inv.total || inv.amount || "0"),
-              status: (inv.status || "pending").toLowerCase() as Invoice["status"],
-              issueDate: inv.createdondatetime || inv.issuedate || "",
-              dueDate: inv.duedate || "",
-              description: inv.description || inv.jobDescription || "Invoice",
-              jobId: inv.jobId ? String(inv.jobId) : undefined,
-            }));
+            invoices = apiInvoices
+              .map((inv: any) => ({
+                id: String(inv.id),
+                invoiceNumber: inv.invoicenumber || inv.id?.toString() || "",
+                amount: parseFloat(inv.total || inv.amount || "0"),
+                status: (inv.status || "pending").toLowerCase() as Invoice["status"],
+                issueDate: inv.createdondatetime || inv.issuedate || "",
+                dueDate: inv.duedate || "",
+                description: inv.description || inv.jobDescription || "Invoice",
+                jobId: inv.jobId ? String(inv.jobId) : undefined,
+              }))
+              .sort((a: Invoice, b: Invoice) =>
+                (b.issueDate || "").localeCompare(a.issueDate || ""),
+              );
             await storage.setInvoices(invoices);
           }
         } catch { /* use storage fallback */ }
@@ -131,13 +143,17 @@ export default function ServicesScreen() {
           if (certsResponse.ok) {
             const certsData = await certsResponse.json();
             const apiCerts = certsData.certificates || [];
-            certificates = apiCerts.map((cert: any) => ({
-              id: String(cert.id || cert.tablepkid),
-              type: cert.Name || cert.type || "Certificate",
-              issueDate: cert.createdondatetime || "",
-              expiryDate: "",
-              documentUrl: cert.documentUrl || undefined,
-            }));
+            certificates = apiCerts
+              .map((cert: any) => ({
+                id: String(cert.id || cert.tablepkid),
+                type: cert.Name || cert.type || "Certificate",
+                issueDate: cert.createdondatetime || "",
+                expiryDate: "",
+                documentUrl: cert.documentUrl || undefined,
+              }))
+              .sort((a: Certificate, b: Certificate) =>
+                (b.issueDate || "").localeCompare(a.issueDate || ""),
+              );
             await storage.setCertificates(certificates);
           }
         } catch { /* use storage fallback */ }

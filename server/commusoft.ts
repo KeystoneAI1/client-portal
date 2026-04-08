@@ -339,17 +339,6 @@ export async function getEnrichedPropertyServiceReminders(customerId: string) {
     }
   }
 
-  // For unmapped reminders we still try to be useful: if the customer has
-  // exactly one distinct service-type history, that's a confident guess.
-  const distinctHistoricalJdIds = new Set<string>();
-  for (const j of jobs) {
-    if (j.jobdescriptionid != null && j.isservicejob) {
-      distinctHistoricalJdIds.add(String(j.jobdescriptionid));
-    }
-  }
-  const singleHistoricalJdId =
-    distinctHistoricalJdIds.size === 1 ? Array.from(distinctHistoricalJdIds)[0] : null;
-
   function cleanJobDescription(desc: string | null | undefined): string | null {
     if (!desc) return null;
     // Commusoft job descriptions often have double spaces and a "Domestic - " prefix.
@@ -360,93 +349,104 @@ export async function getEnrichedPropertyServiceReminders(customerId: string) {
     raw: any;
     jdId: string | null;
     serviceTypeName: string | null;
-    serviceTypeSource: "exact" | "single-history" | "paired-history" | "unknown";
+    serviceTypeSource: "exact" | "frequency-history" | "unknown";
   };
 
+  // Pass 1: direct back-links from the customer's job history.
   const enrichedDraft: Enriched[] = reminders.map((r) => {
-    let jdId: string | null = null;
-    let serviceTypeName: string | null = null;
-    let serviceTypeSource: Enriched["serviceTypeSource"] = "unknown";
-
     const linkedJob = reminderIdToJob.get(String(r.id));
-    if (linkedJob) {
-      jdId = linkedJob.jobdescriptionid != null ? String(linkedJob.jobdescriptionid) : null;
-      serviceTypeName =
-        cleanJobDescription(linkedJob.description) ||
-        (jdId ? jdIdToSystemName.get(jdId) || null : null);
-      serviceTypeSource = "exact";
-    } else if (singleHistoricalJdId) {
-      // Customer only ever has one type of service job — confident enough to label.
-      const sample = jobs.find(
-        (j) => j.isservicejob && String(j.jobdescriptionid) === singleHistoricalJdId,
-      );
-      jdId = singleHistoricalJdId;
-      serviceTypeName =
-        cleanJobDescription(sample?.description) ||
-        jdIdToSystemName.get(singleHistoricalJdId) ||
-        null;
-      serviceTypeSource = "single-history";
+    if (!linkedJob) {
+      return { raw: r, jdId: null, serviceTypeName: null, serviceTypeSource: "unknown" };
     }
-
-    return { raw: r, jdId, serviceTypeName, serviceTypeSource };
+    const jdId =
+      linkedJob.jobdescriptionid != null ? String(linkedJob.jobdescriptionid) : null;
+    const systemName = jdId ? jdIdToSystemName.get(jdId) : undefined;
+    // Prefer the system reminder catalogue name because that's what Commusoft
+    // displays for reminders. Fall back to the job's own description text.
+    const serviceTypeName =
+      systemName || cleanJobDescription(linkedJob.description) || null;
+    return {
+      raw: r,
+      jdId,
+      serviceTypeName,
+      serviceTypeSource: "exact",
+    };
   });
 
-  // Pairing fallback: when the number of unmapped reminders matches the number
-  // of distinct historical service types AND those historical types each have
-  // a sample job, deterministically pair them by due-date order. This handles
-  // the common case where each property has e.g. one boiler reminder and one
-  // EICR reminder recurring on different cadences.
-  const unmapped = enrichedDraft.filter((e) => e.serviceTypeSource === "unknown");
-  const usedJdIds = new Set(
+  // Pass 2: for each unmapped reminder, assign the customer's most-frequent
+  // historical service jobdescriptionid that also appears in the system
+  // reminder catalogue AND has not already been consumed by an exact match.
+  //
+  // Unmapped reminders are processed in due-date order, and available jdids
+  // are ranked by service-period (shortest cadence first) so the nearer
+  // reminder lands on the more frequently-recurring service — this matches
+  // how Commusoft's web UI pairs reminders to services in practice.
+
+  // Count customer jobs per jdid, restricted to jdids that have a system
+  // reminder catalogue entry (otherwise there's no displayable name).
+  const jdIdJobCount = new Map<string, number>();
+  for (const j of jobs) {
+    if (j.jobdescriptionid == null) continue;
+    const k = String(j.jobdescriptionid);
+    if (!jdIdToSystemName.has(k)) continue;
+    jdIdJobCount.set(k, (jdIdJobCount.get(k) || 0) + 1);
+  }
+
+  const consumedJdIds = new Set(
     enrichedDraft
       .filter((e) => e.serviceTypeSource === "exact" && e.jdId)
       .map((e) => e.jdId as string),
   );
-  const availableJdIds = Array.from(distinctHistoricalJdIds).filter(
-    (id) => !usedJdIds.has(id),
-  );
+  const availableJdIds = Array.from(jdIdJobCount.entries())
+    .filter(([id]) => !consumedJdIds.has(id))
+    .sort((a, b) => b[1] - a[1]) // most-frequent first
+    .map(([id]) => id);
 
-  if (unmapped.length > 0 && unmapped.length === availableJdIds.length) {
-    // Sample-job-per-jdid, sorted by service period (shorter cadence first).
-    const samples = availableJdIds
-      .map((id) => {
-        const sample = jobs
-          .filter((j) => j.isservicejob && String(j.jobdescriptionid) === id)
-          .sort((a, b) => (b.completedon || "").localeCompare(a.completedon || ""))[0];
-        return { id, sample };
-      })
-      .filter((s) => s.sample);
-
-    // Compute estimated cadence for each sample by checking the matching system
-    // reminder type's serviceperiod.
-    function periodForJdId(id: string): number {
-      const sr = systemReminders.find(
-        (s: any) => String(s.settingsjobdescriptionid) === id,
-      );
-      return sr?.serviceperiod || 12;
-    }
-
-    const sortedByPeriod = samples.sort(
-      (a, b) => periodForJdId(a.id) - periodForJdId(b.id),
+  function periodForJdId(id: string): number {
+    const sr = systemReminders.find(
+      (s: any) => String(s.settingsjobdescriptionid) === id,
     );
-    const sortedUnmapped = [...unmapped].sort((a, b) => {
-      const da = a.raw.duedate || "";
-      const db = b.raw.duedate || "";
-      return da.localeCompare(db);
-    });
+    return sr?.serviceperiod || 12;
+  }
 
-    if (sortedByPeriod.length === sortedUnmapped.length) {
-      for (let i = 0; i < sortedUnmapped.length; i++) {
-        const target = sortedUnmapped[i];
-        const slot = sortedByPeriod[i];
-        target.jdId = slot.id;
-        target.serviceTypeName =
-          cleanJobDescription(slot.sample.description) ||
-          jdIdToSystemName.get(slot.id) ||
-          null;
-        target.serviceTypeSource = "paired-history";
-      }
+  // Sort unmapped reminders by due date (earliest first).
+  const unmappedEntries = enrichedDraft
+    .map((e, idx) => ({ e, idx }))
+    .filter((x) => x.e.serviceTypeSource === "unknown")
+    .sort((a, b) =>
+      String(a.e.raw.duedate || "").localeCompare(String(b.e.raw.duedate || "")),
+    );
+
+  // Sort available jdids by frequency descending (the customer's most-used
+  // service type is the most likely match), then ties broken by service
+  // period ascending so annual reminders beat 5-year ones when counts tie.
+  // Frequency-first is critical: some reminder types like "Submit WB Rebates"
+  // have a tiny service period (1 month) but zero real-world booking frequency,
+  // so a period-first sort wrongly ranks them above genuine service types.
+  const availableSorted = [...availableJdIds].sort((a, b) => {
+    const ca = jdIdJobCount.get(a) || 0;
+    const cb = jdIdJobCount.get(b) || 0;
+    if (ca !== cb) return cb - ca;
+    return periodForJdId(a) - periodForJdId(b);
+  });
+
+  // If there are FEWER available jdids than unmapped reminders, fall back to
+  // repeating the most-frequent one (better than leaving reminders unlabelled).
+  for (let i = 0; i < unmappedEntries.length; i++) {
+    const target = unmappedEntries[i].e;
+    let jdId: string | undefined;
+    if (i < availableSorted.length) {
+      jdId = availableSorted[i];
+    } else if (availableSorted.length > 0) {
+      // Multiple reminders, not enough distinct historical types — reuse the
+      // most frequent one.
+      jdId = availableSorted[0];
     }
+    if (!jdId) continue;
+
+    target.jdId = jdId;
+    target.serviceTypeName = jdIdToSystemName.get(jdId) || null;
+    target.serviceTypeSource = "frequency-history";
   }
 
   const enriched = enrichedDraft.map((e) => ({
