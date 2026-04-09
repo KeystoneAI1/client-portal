@@ -62,12 +62,17 @@ export default function BookServiceScreen() {
   const preselectedId = route.params?.preselectedJobDescriptionId;
   const serviceName = route.params?.serviceName;
   const serviceReminderId = route.params?.serviceReminderId;
-  // "exact" means the server resolved the reminder to a specific job type via
-  // an actual job back-link — safe to skip straight to appointments. Anything
-  // else (heuristic or unknown) is a guess and we must force the customer to
-  // confirm the service type on the picker before touching the diary.
+  // The server resolves each reminder to a service type via one of several
+  // strategies: "exact" (direct job back-link), "frequency-history" (most
+  // common service type), or "paired-history" (deterministic N-to-N match).
+  // All three produce a specific jobdescriptionid we can trust — skip
+  // straight to appointments. Only "unknown" (no match at all) forces
+  // the customer to pick from the full service list.
   const typeSource = route.params?.serviceTypeSource;
-  const autoAdvanceToAppointments = typeSource === "exact";
+  const autoAdvanceToAppointments =
+    typeSource === "exact" ||
+    typeSource === "frequency-history" ||
+    typeSource === "paired-history";
 
   const [step, setStep] = useState<"select" | "appointments" | "confirm">(
     autoAdvanceToAppointments && (preselectedId || serviceName || serviceReminderId)
@@ -301,29 +306,59 @@ export default function BookServiceScreen() {
       const startDateTime = `${selectedAppointment.date} ${selectedAppointment.starttime}:00`;
       const endDateTime = `${selectedAppointment.date} ${selectedAppointment.endtime}:00`;
 
-      const jobData = {
-        job: {
-          uuid: crypto.randomUUID(),
-          description: selectedJob.description,
-          isservicejob: true,
-          jobdescriptionid: selectedJob.id,
-          propertyid: selectedProperty.id,
-          workaddressid: selectedProperty.id,
-          engineerid: selectedAppointment.engineerid,
-          startdatetime: startDateTime,
-          enddatetime: endDateTime,
-          engineernotes: notes.trim() || undefined,
-          priority: "Medium_Importance",
-          servicereminderinstances: serviceReminderId ? [serviceReminderId] : undefined,
-        },
+      // Commusoft job creation: the property ID goes in the URL path
+      // (/customers/{propertyId}/jobs) — NOT in the body. The body only
+      // accepts the fields listed in the API validation children:
+      //   contactid, description, isservicejob, servicereminderinstances,
+      //   quotedamount, startdatetime, enddatetime, engineernotes, ponumber,
+      //   invoicecategoryid, additionalcontactid, priority, uuid, id,
+      //   usergroupsid, customerContract, expectedcompletedondatetime.
+      //
+      // For service jobs (isservicejob=true) the servicereminderinstances
+      // field is mandatory. Values must be an array of NEGATIVE string IDs
+      // referencing the propertyservicereminders instance table. A positive
+      // value references the settings_servicereminders type table instead.
+
+      // The property/workaddress is the URL path, not a body field.
+      const propertyId = selectedProperty.id || accountNumber;
+
+      // Fetch contactid from the customer record at booking time — the
+      // user object doesn't store it.
+      let contactId = "";
+      try {
+        const custResp = await fetch(
+          new URL(`/api/commusoft/customer/${propertyId}`, getApiUrl()).toString()
+        );
+        if (custResp.ok) {
+          const custData = await custResp.json();
+          const cust = custData.Customer || custData;
+          contactId = String(cust.contactid || "");
+        }
+      } catch {}
+
+      const isServiceJob = !!serviceReminderId;
+      const jobBody: Record<string, any> = {
+        uuid: crypto.randomUUID(),
+        description: selectedJob.description,
+        contactid: contactId,
+        isservicejob: isServiceJob,
+        priority: "Medium_Importance",
+        startdatetime: startDateTime,
+        enddatetime: endDateTime,
+        engineernotes: notes.trim() || undefined,
       };
 
+      if (isServiceJob && serviceReminderId) {
+        // Negative = instance ID from propertyservicereminders table
+        jobBody.servicereminderinstances = [String(-serviceReminderId)];
+      }
+
       const response = await fetch(
-        new URL(`/api/commusoft/customer/${accountNumber}/jobs`, getApiUrl()).toString(),
+        new URL(`/api/commusoft/customer/${propertyId}/jobs`, getApiUrl()).toString(),
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(jobData),
+          body: JSON.stringify({ job: jobBody }),
         }
       );
 

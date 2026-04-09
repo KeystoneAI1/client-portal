@@ -35,7 +35,7 @@ interface ServiceReminder {
   // "frequency-history" = we inferred the type from the customer's history;
   // safe enough to display, but booking must require confirmation.
   // "unknown" = no label available, show generic and force manual pick.
-  typeSource: "exact" | "frequency-history" | "unknown";
+  typeSource: "exact" | "frequency-history" | "paired-history" | "unknown";
 }
 
 interface ServiceStatus {
@@ -101,9 +101,10 @@ export default function HomeScreen() {
             pr.contractName ||
             "Service Reminder";
           const jobDescId: number = Number(pr.settingsjobdescriptionid) || 0;
-          const typeSource: "exact" | "frequency-history" | "unknown" =
+          const typeSource: "exact" | "frequency-history" | "paired-history" | "unknown" =
             pr.serviceTypeSource === "exact" ||
-            pr.serviceTypeSource === "frequency-history"
+            pr.serviceTypeSource === "frequency-history" ||
+            pr.serviceTypeSource === "paired-history"
               ? pr.serviceTypeSource
               : "unknown";
 
@@ -399,6 +400,25 @@ export default function HomeScreen() {
             </ThemedText>
           </View>
         )}
+
+        {/* BOOK A SERVICE — general entry point to full service list */}
+        <Pressable
+          style={[styles.serviceCard, { backgroundColor: theme.primary }, Shadows.small]}
+          onPress={() => navigation.navigate("BookService")}
+        >
+          <View style={[styles.serviceIconBox, { backgroundColor: "rgba(255,255,255,0.2)" }]}>
+            <Feather name="plus-circle" size={22} color="#FFFFFF" />
+          </View>
+          <View style={{ flex: 1 }}>
+            <ThemedText type="body" style={[styles.serviceCardTitle, { color: "#FFFFFF" }]}>
+              Book a Service
+            </ThemedText>
+            <ThemedText type="small" style={{ color: "rgba(255,255,255,0.8)", fontSize: 12, marginTop: 2 }}>
+              View all available services and appointment times
+            </ThemedText>
+          </View>
+          <Feather name="chevron-right" size={20} color="rgba(255,255,255,0.7)" />
+        </Pressable>
 
         {/* UPCOMING JOB */}
         {upcomingJob ? (

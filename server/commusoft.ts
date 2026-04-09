@@ -227,10 +227,10 @@ export async function createJob(customerId: string, data: unknown) {
   if (!jobData?.job) {
     throw new Error("job object required");
   }
-  if (!jobData.job.propertyid && !jobData.job.workaddressid) {
-    throw new Error("propertyid or workaddressid required — cannot create job without property");
-  }
-  console.log(`[CommusoftClient] Creating job for customer ${customerId}: ${jobData.job.description} | engineer: ${jobData.job.engineerid} | property: ${jobData.job.propertyid}`);
+  // The customerId in the URL IS the property — Commusoft uses the same
+  // endpoint for both customers and workaddresses. No propertyid or
+  // workaddressid fields belong in the body; they cause "extra fields" errors.
+  console.log(`[CommusoftClient] Creating job for property/customer ${customerId}: ${jobData.job.description}`);
   return commusoftRequest({
     method: "POST",
     endpoint: `/api/v1/customers/${customerId}/jobs`,

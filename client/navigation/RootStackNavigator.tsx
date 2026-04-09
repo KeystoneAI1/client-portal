@@ -31,7 +31,7 @@ export type RootStackParamList = {
         // "exact" means we're sure this is the right service type and can
         // skip straight to appointment selection. Anything else (guess) lands
         // the user on the service picker with a visible confirmation banner.
-        serviceTypeSource?: "exact" | "frequency-history" | "unknown";
+        serviceTypeSource?: "exact" | "frequency-history" | "paired-history" | "unknown";
       }
     | undefined;
   EditContact: { contactId?: string };
